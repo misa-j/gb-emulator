@@ -48,6 +48,10 @@ typedef struct
 
 typedef struct
 {
+    __uint16_t div_counter;
+    __uint16_t tima_cycles;
+    __uint8_t current_t_cycles;
+    __uint8_t halted;
     __uint16_t PC;
     __uint16_t SP;
     Registers registers;
@@ -171,24 +175,28 @@ void PUSH_DE(CPU *cpu, Memory *memory)
 {
     memory->memory[--cpu->SP] = cpu->registers.D;
     memory->memory[--cpu->SP] = cpu->registers.E;
+    cpu->current_t_cycles += 16;
 }
 
 void PUSH_BC(CPU *cpu, Memory *memory)
 {
     memory->memory[--cpu->SP] = cpu->registers.B;
     memory->memory[--cpu->SP] = cpu->registers.C;
+    cpu->current_t_cycles += 16;
 }
 
 void PUSH_AF(CPU *cpu, Memory *memory)
 {
     memory->memory[--cpu->SP] = cpu->registers.A;
     memory->memory[--cpu->SP] = get_F(cpu);
+    cpu->current_t_cycles += 16;
 }
 
 void PUSH_HL(CPU *cpu, Memory *memory)
 {
     memory->memory[--cpu->SP] = cpu->registers.H;
     memory->memory[--cpu->SP] = cpu->registers.L;
+    cpu->current_t_cycles += 16;
 }
 
 void RR_r8(CPU *cpu, __uint8_t *r8)
@@ -203,12 +211,22 @@ void RR_r8(CPU *cpu, __uint8_t *r8)
     cpu->N = 0;
     cpu->H = 0;
     cpu->C = C;
+    cpu->current_t_cycles += 8;
 }
 
 void RRA(CPU *cpu, __uint8_t *r8)
 {
-    RR_r8(cpu, r8);
+    __uint8_t val = *r8;
+    __uint8_t C = val & 1u;
+    val >>= 1;
+    val |= (cpu->C << 7);
+
+    *r8 = val;
     cpu->Z = 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 4;
 }
 
 void DEC_r8(CPU *cpu, __uint8_t *r8)
@@ -219,6 +237,7 @@ void DEC_r8(CPU *cpu, __uint8_t *r8)
     cpu->Z = val == 0;
     cpu->N = 1;
     *r8 = val;
+    cpu->current_t_cycles += 4;
 }
 
 void DEC_SP(CPU *cpu)
@@ -229,6 +248,7 @@ void DEC_SP(CPU *cpu)
 void INC_SP(CPU *cpu)
 {
     cpu->SP++;
+    cpu->current_t_cycles += 8;
 }
 
 void INC_BC(CPU *cpu, Memory *memory)
@@ -238,6 +258,7 @@ void INC_BC(CPU *cpu, Memory *memory)
     store_BC(cpu, BC);
     cpu->registers.B = (BC & 0xFF00) >> 8;
     cpu->registers.C = (BC & 0x00FF);
+    cpu->current_t_cycles += 8;
 }
 
 void INC_DE(CPU *cpu)
@@ -245,6 +266,7 @@ void INC_DE(CPU *cpu)
     __uint16_t DE = get_DE(cpu);
     DE++;
     store_DE(cpu, DE);
+    cpu->current_t_cycles += 8;
 }
 
 void INC_r8(CPU *cpu, __uint8_t *r8)
@@ -254,6 +276,7 @@ void INC_r8(CPU *cpu, __uint8_t *r8)
     *r8 = ++val;
     cpu->Z = val == 0;
     cpu->N = 0;
+    cpu->current_t_cycles += 4;
 }
 
 void SUB_A_n8(CPU *cpu, Memory *memory)
@@ -265,6 +288,7 @@ void SUB_A_n8(CPU *cpu, Memory *memory)
     cpu->registers.A -= n8;
     cpu->Z = cpu->registers.A == 0;
     cpu->N = 1;
+    cpu->current_t_cycles += 8;
 }
 
 void INC_HL(CPU *cpu, Memory *memory)
@@ -272,6 +296,7 @@ void INC_HL(CPU *cpu, Memory *memory)
     __uint16_t HL = get_HL(cpu);
     HL++;
     store_HL(cpu, HL);
+    cpu->current_t_cycles += 8;
 }
 
 void LD_HLD_A(CPU *cpu, Memory *memory)
@@ -280,6 +305,7 @@ void LD_HLD_A(CPU *cpu, Memory *memory)
     memory->memory[HL] = cpu->registers.A;
     HL--;
     store_HL(cpu, HL);
+    cpu->current_t_cycles += 8;
 }
 
 void LD_HLI_A(CPU *cpu, Memory *memory)
@@ -288,6 +314,7 @@ void LD_HLI_A(CPU *cpu, Memory *memory)
     memory->memory[HL] = cpu->registers.A;
     HL++;
     store_HL(cpu, HL);
+    cpu->current_t_cycles += 8;
 }
 
 void LD_A_HLI(CPU *cpu, Memory *memory)
@@ -296,6 +323,7 @@ void LD_A_HLI(CPU *cpu, Memory *memory)
     cpu->registers.A = memory->memory[HL];
     HL++;
     store_HL(cpu, HL);
+    cpu->current_t_cycles += 8;
 }
 
 void DEC_HL(CPU *cpu, Memory *memory)
@@ -307,6 +335,7 @@ void DEC_HL(CPU *cpu, Memory *memory)
     cpu->Z = val == 0;
     cpu->N = 1;
     memory->memory[HL] = val;
+    cpu->current_t_cycles += 12;
 }
 
 void DEC_BC(CPU *cpu)
@@ -315,6 +344,7 @@ void DEC_BC(CPU *cpu)
     BC--;
     cpu->registers.B = (BC & 0xFF00) >> 8;
     cpu->registers.C = (BC & 0x00FF);
+    cpu->current_t_cycles += 8;
 }
 
 void DEC_DE_r16(CPU *cpu)
@@ -322,6 +352,7 @@ void DEC_DE_r16(CPU *cpu)
     __uint16_t DE = get_DE(cpu);
     DE--;
     store_DE(cpu, DE);
+    cpu->current_t_cycles += 8;
 }
 
 void DAA(CPU *cpu)
@@ -349,37 +380,51 @@ void DAA(CPU *cpu)
 
     cpu->Z = cpu->registers.A == 0;
     cpu->H = 0;
+    cpu->current_t_cycles += 4;
+}
+
+void HALT(CPU *cpu)
+{
+    cpu->halted = 1;
 }
 
 void EI(CPU *cpu)
 {
     cpu->ime_delay = 1;
+    cpu->current_t_cycles += 4;
 }
 
 void DI(CPU *cpu)
 {
     cpu->IME = 0;
     cpu->ime_delay = 0;
+    cpu->current_t_cycles += 4;
 }
 
-void NOP(CPU *cpu) {}
+void NOP(CPU *cpu)
+{
+    cpu->current_t_cycles += 4;
+}
 
 void LD_r8_HL(CPU *cpu, Memory *memory, __uint8_t *r8)
 {
     __uint16_t HL = get_HL(cpu);
     *r8 = memory->memory[HL];
+    cpu->current_t_cycles += 8;
 }
 
 void LD_SP_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
     cpu->SP = HL;
+    cpu->current_t_cycles += 8;
 }
 
 void LD_SP_n16(CPU *cpu, Memory *memory)
 {
     __uint16_t a16 = get_a16(cpu, memory);
     cpu->SP = a16;
+    cpu->current_t_cycles += 12;
 }
 
 void LD_a16_SP(CPU *cpu, Memory *memory)
@@ -391,6 +436,7 @@ void LD_a16_SP(CPU *cpu, Memory *memory)
     __uint16_t a16 = a1 | (a2 << 8);
     memory->memory[a16] = cpu->SP & 0x00FF;
     memory->memory[a16 + 1] = (cpu->SP & 0xFF00) >> 8;
+    cpu->current_t_cycles += 20;
 }
 
 void LD_r8_n8(CPU *cpu, Memory *memory, __uint8_t *r8)
@@ -398,23 +444,27 @@ void LD_r8_n8(CPU *cpu, Memory *memory, __uint8_t *r8)
     __uint8_t n8 = get_opcode(memory->memory, cpu);
     cpu->PC++;
     *r8 = n8;
+    cpu->current_t_cycles += 8;
 }
 
-void LD_r8_r8(__uint8_t *r_dest, __uint8_t val)
+void LD_r8_r8(CPU *cpu, __uint8_t *r_dest, __uint8_t val)
 {
     *r_dest = val;
+    cpu->current_t_cycles += 4;
 }
 
 void LD_A_a16(CPU *cpu, Memory *memory)
 {
     __uint16_t a16 = get_a16(cpu, memory);
     cpu->registers.A = memory->memory[a16];
+    cpu->current_t_cycles += 16;
 }
 
 void LD_a16_A(CPU *cpu, Memory *memory)
 {
     __uint16_t a16 = get_a16(cpu, memory);
     memory->memory[a16] = cpu->registers.A;
+    cpu->current_t_cycles += 16;
 }
 
 void LD_a8_A(CPU *cpu, Memory *memory)
@@ -422,6 +472,7 @@ void LD_a8_A(CPU *cpu, Memory *memory)
     __uint8_t a8 = get_opcode(memory->memory, cpu);
     cpu->PC++;
     memory->memory[0xFF00 + a8] = cpu->registers.A;
+    cpu->current_t_cycles += 12;
 }
 
 void LD_A_a8(CPU *cpu, Memory *memory)
@@ -429,6 +480,7 @@ void LD_A_a8(CPU *cpu, Memory *memory)
     __uint8_t a8 = get_opcode(memory->memory, cpu);
     cpu->PC++;
     cpu->registers.A = memory->memory[0xFF00 + a8];
+    cpu->current_t_cycles += 12;
 }
 
 void LD_BC_n16(CPU *cpu, Memory *memory)
@@ -439,6 +491,7 @@ void LD_BC_n16(CPU *cpu, Memory *memory)
     cpu->PC++;
     cpu->registers.C = v1;
     cpu->registers.B = v2;
+    cpu->current_t_cycles += 12;
 }
 
 void LD_DE_n16(CPU *cpu, Memory *memory)
@@ -449,6 +502,7 @@ void LD_DE_n16(CPU *cpu, Memory *memory)
     cpu->PC++;
     cpu->registers.E = v1;
     cpu->registers.D = v2;
+    cpu->current_t_cycles += 12;
 }
 
 void LD_HL_n16(CPU *cpu, Memory *memory)
@@ -459,18 +513,21 @@ void LD_HL_n16(CPU *cpu, Memory *memory)
     cpu->PC++;
     cpu->registers.L = v1;
     cpu->registers.H = v2;
+    cpu->current_t_cycles += 12;
 }
 
 void LD_DE_A(CPU *cpu, Memory *memory)
 {
     __uint16_t DE = get_DE(cpu);
     memory->memory[DE] = cpu->registers.A;
+    cpu->current_t_cycles += 8;
 }
 
 void LD_A_DE(CPU *cpu, Memory *memory)
 {
     __uint16_t DE = get_DE(cpu);
     cpu->registers.A = memory->memory[DE];
+    cpu->current_t_cycles += 8;
 }
 
 void XOR_A_r8(CPU *cpu, __uint8_t val)
@@ -480,6 +537,7 @@ void XOR_A_r8(CPU *cpu, __uint8_t val)
     cpu->N = 0;
     cpu->H = 0;
     cpu->C = 0;
+    cpu->current_t_cycles += 4;
 }
 
 void XOR_A_n8(CPU *cpu, Memory *memory)
@@ -491,6 +549,7 @@ void XOR_A_n8(CPU *cpu, Memory *memory)
     cpu->N = 0;
     cpu->H = 0;
     cpu->C = 0;
+    cpu->current_t_cycles += 8;
 }
 
 void XOR_A_HL(CPU *cpu, Memory *memory)
@@ -501,6 +560,7 @@ void XOR_A_HL(CPU *cpu, Memory *memory)
     cpu->N = 0;
     cpu->H = 0;
     cpu->C = 0;
+    cpu->current_t_cycles += 8;
 }
 
 void OR_A(CPU *cpu, __uint8_t val)
@@ -510,6 +570,7 @@ void OR_A(CPU *cpu, __uint8_t val)
     cpu->N = 0;
     cpu->H = 0;
     cpu->C = 0;
+    cpu->current_t_cycles += 4;
 }
 
 void AND_A_n8(CPU *cpu, Memory *memory)
@@ -521,6 +582,7 @@ void AND_A_n8(CPU *cpu, Memory *memory)
     cpu->N = 0;
     cpu->H = 1;
     cpu->C = 0;
+    cpu->current_t_cycles += 8;
 }
 
 void AND_A_r8(CPU *cpu, __uint8_t val)
@@ -530,30 +592,35 @@ void AND_A_r8(CPU *cpu, __uint8_t val)
     cpu->N = 0;
     cpu->H = 1;
     cpu->C = 0;
+    cpu->current_t_cycles += 4;
 }
 
 void OR_A_HL(CPU *cpu, Memory *memory)
 {
     __uint16_t HL = get_HL(cpu);
     OR_A(cpu, memory->memory[HL]);
+    cpu->current_t_cycles += 4;
 }
 
 void LD_HL_r8(CPU *cpu, Memory *memory, __uint8_t r8)
 {
     __uint16_t HL = get_HL(cpu);
     memory->memory[HL] = r8;
+    cpu->current_t_cycles += 8;
 }
 
 void POP_DE(CPU *cpu, Memory *memory)
 {
     cpu->registers.E = memory->memory[cpu->SP++];
     cpu->registers.D = memory->memory[cpu->SP++];
+    cpu->current_t_cycles += 12;
 }
 
 void POP_BC(CPU *cpu, Memory *memory)
 {
     cpu->registers.C = memory->memory[cpu->SP++];
     cpu->registers.B = memory->memory[cpu->SP++];
+    cpu->current_t_cycles += 12;
 }
 
 void POP_AF(CPU *cpu, Memory *memory)
@@ -564,12 +631,14 @@ void POP_AF(CPU *cpu, Memory *memory)
     cpu->N = (cpu->registers.F & (1u << 6)) ? 1 : 0;
     cpu->H = (cpu->registers.F & (1u << 5)) ? 1 : 0;
     cpu->C = (cpu->registers.F & (1u << 4)) ? 1 : 0;
+    cpu->current_t_cycles += 12;
 }
 
 void POP_HL(CPU *cpu, Memory *memory)
 {
     cpu->registers.L = memory->memory[cpu->SP++];
     cpu->registers.H = memory->memory[cpu->SP++];
+    cpu->current_t_cycles += 12;
 }
 
 void ADC_A(CPU *cpu, __uint8_t n8)
@@ -580,6 +649,7 @@ void ADC_A(CPU *cpu, __uint8_t n8)
     cpu->registers.A += val;
     cpu->Z = cpu->registers.A == 0;
     cpu->N = 0;
+    cpu->current_t_cycles += 4;
 }
 
 void ADC_A_n8(CPU *cpu, Memory *memory)
@@ -587,6 +657,7 @@ void ADC_A_n8(CPU *cpu, Memory *memory)
     __uint8_t n8 = get_opcode(memory->memory, cpu);
     cpu->PC++;
     ADC_A(cpu, n8);
+    cpu->current_t_cycles += 4;
 }
 
 void ADD_HL_r16(CPU *cpu, __uint16_t r16)
@@ -598,6 +669,7 @@ void ADD_HL_r16(CPU *cpu, __uint16_t r16)
     HL = result;
     cpu->N = 0;
     store_HL(cpu, HL);
+    cpu->current_t_cycles += 8;
 }
 
 void ADD_SP_s8(CPU *cpu, Memory *memory)
@@ -611,6 +683,7 @@ void ADD_SP_s8(CPU *cpu, Memory *memory)
     cpu->Z = 0;
     cpu->N = 0;
     cpu->SP = result;
+    cpu->current_t_cycles += 16;
 }
 
 void ADD_A_n8(CPU *cpu, Memory *memory)
@@ -622,6 +695,7 @@ void ADD_A_n8(CPU *cpu, Memory *memory)
     cpu->registers.A += d8;
     cpu->Z = cpu->registers.A == 0;
     cpu->N = 0;
+    cpu->current_t_cycles += 8;
 }
 
 void LD_HL_SP_s8(CPU *cpu, Memory *memory)
@@ -635,8 +709,8 @@ void LD_HL_SP_s8(CPU *cpu, Memory *memory)
     cpu->C = (cpu->SP & 0xFF) + (s8 & 0xFF) > 0xFF;
     cpu->Z = 0;
     cpu->N = 0;
-
     store_HL(cpu, result);
+    cpu->current_t_cycles += 12;
 }
 
 void CP_A_n8(CPU *cpu, Memory *memory)
@@ -648,6 +722,7 @@ void CP_A_n8(CPU *cpu, Memory *memory)
     cpu->N = 1;
     cpu->H = (cpu->registers.A & 0xF) < (n8 & 0xF);
     cpu->C = cpu->registers.A < n8;
+    cpu->current_t_cycles += 8;
 }
 
 void CP_A_r8(CPU *cpu, __uint8_t r8)
@@ -657,25 +732,32 @@ void CP_A_r8(CPU *cpu, __uint8_t r8)
     cpu->N = 1;
     cpu->H = (cpu->registers.A & 0xF) < (r8 & 0xF);
     cpu->C = cpu->registers.A < r8;
+    cpu->current_t_cycles += 4;
 }
 
 void JP_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
 {
     __uint16_t a16 = get_a16(cpu, memory);
     if (!cc)
+    {
+        cpu->current_t_cycles += 12;
         return;
+    }
     cpu->PC = a16;
+    cpu->current_t_cycles += 16;
 }
 
 void JP_n16(CPU *cpu, Memory *memory)
 {
     __uint16_t a16 = get_a16(cpu, memory);
     cpu->PC = a16;
+    cpu->current_t_cycles += 16;
 }
 
 void JP_HL(CPU *cpu)
 {
     cpu->PC = get_HL(cpu);
+    cpu->current_t_cycles += 4;
 }
 
 void JR_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
@@ -683,8 +765,12 @@ void JR_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
     __uint8_t e8 = get_opcode(memory->memory, cpu);
     cpu->PC++;
     if (!cc)
+    {
+        cpu->current_t_cycles += 8;
         return;
+    }
     cpu->PC += sign_extend(e8);
+    cpu->current_t_cycles += 12;
 }
 
 void JR_n16(CPU *cpu, Memory *memory)
@@ -692,15 +778,20 @@ void JR_n16(CPU *cpu, Memory *memory)
     __uint8_t n8 = get_opcode(memory->memory, cpu);
     cpu->PC++;
     cpu->PC += sign_extend(n8);
+    cpu->current_t_cycles += 12;
 }
 
 void CALL_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
 {
     __uint16_t a16 = get_a16(cpu, memory);
     if (!cc)
+    {
+        cpu->current_t_cycles += 12;
         return;
+    }
     store_SP(cpu, memory);
     cpu->PC = a16;
+    cpu->current_t_cycles += 24;
 }
 
 void CALL_n16(CPU *cpu, Memory *memory)
@@ -708,13 +799,19 @@ void CALL_n16(CPU *cpu, Memory *memory)
     __uint16_t a16 = get_a16(cpu, memory);
     store_PC(cpu, memory);
     cpu->PC = a16;
+    cpu->current_t_cycles += 24;
 }
 
 void RET_CC(CPU *cpu, Memory *memory, __uint8_t cc)
 {
     if (!cc)
+    {
+        cpu->current_t_cycles += 8;
         return;
+    }
+
     cpu->PC = get_SP(cpu, memory);
+    cpu->current_t_cycles + -20;
 }
 
 void RET(CPU *cpu, Memory *memory)
@@ -723,10 +820,12 @@ void RET(CPU *cpu, Memory *memory)
     __uint8_t v2 = memory->memory[cpu->SP++];
     __uint16_t a16 = v1 | (v2 << 8);
     cpu->PC = a16;
+    cpu->current_t_cycles += 16;
 }
 
 void exec_CB(CPU *cpu, Memory *memory)
 {
+    cpu->current_t_cycles += 4;
     __uint8_t opcode = get_opcode(memory->memory, cpu);
     cpu->PC++;
     switch (opcode)
@@ -738,6 +837,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         cpu->N = 0;
         cpu->H = 0;
         cpu->C = C;
+        cpu->current_t_cycles += 8;
         break;
     case 0x19:
         RR_r8(cpu, &(cpu->registers.C));
@@ -814,6 +914,30 @@ int handle_interrupts(CPU *cpu, Memory *memory, FILE *file)
     return 0;
 }
 
+void update_timer(CPU *cpu, Memory *memory)
+{
+    cpu->div_counter += cpu->current_t_cycles;
+    memory->memory[0xFF04] = (cpu->div_counter >> 8);
+
+    if (memory->memory[0xFF07] & 0x04)
+    {
+        __uint16_t freq = (memory->memory[0xFF07] & 0x03) == 0 ? 1024 : (memory->memory[0xFF07] & 0x03) == 1 ? 16
+                                                                    : (memory->memory[0xFF07] & 0x03) == 2   ? 64
+                                                                                                             : 256;
+        cpu->tima_cycles += cpu->current_t_cycles;
+        if (cpu->tima_cycles >= freq)
+        {
+            memory->memory[0xFF05]++;
+            cpu->tima_cycles -= freq;
+            if (memory->memory[0xFF05] == 0)
+            {
+                memory->memory[0xFF05] = memory->memory[0xFF06];
+                memory->memory[0xFF0F] |= 0x04;
+            }
+        }
+    }
+}
+
 int main()
 {
     FILE *file = fopen("output.txt", "w");
@@ -824,7 +948,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/03-op sp,hl.gb";
+    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/02-interrupts.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -846,9 +970,28 @@ int main()
 
     print_cpu(&cpu, &memory, file);
     int cnt = 0;
-    while (cnt < 10000000)
+    while (cnt < 1300000)
     {
         cnt++;
+
+        if (cpu.halted)
+        {
+            __uint8_t t_cycles = 4;
+            cpu.current_t_cycles += t_cycles;
+            update_timer(&cpu, &memory);
+
+            if (cpu.IME && (memory.memory[0xFF0F] & memory.memory[0xFFFF]))
+            {
+                cpu.halted = 0;
+                int handled = handle_interrupts(&cpu, &memory, file);
+            }
+            else if (!cpu.IME && memory.memory[0xFF0F])
+            {
+                cpu.halted = 0;
+            }
+            continue;
+        }
+
         __uint8_t opcode = get_opcode(buffer, &cpu);
 
         cpu.PC++;
@@ -864,7 +1007,7 @@ int main()
             DI(&cpu);
             break;
         case 0x44: // LD B, H
-            LD_r8_r8(&cpu.registers.B, cpu.registers.H);
+            LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.H);
             break;
         case 0xFE: // CP A, n8
             CP_A_n8(&cpu, &memory);
@@ -906,7 +1049,7 @@ int main()
             DEC_BC(&cpu);
             break;
         case 0x78:
-            LD_r8_r8(&cpu.registers.A, cpu.registers.B);
+            LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.B);
             break;
         case 0xB1: // OR A, C
             OR_A(&cpu, cpu.registers.C);
@@ -918,7 +1061,7 @@ int main()
             LD_r8_n8(&cpu, &memory, &cpu.registers.A);
             break;
         case 0x47:
-            LD_r8_r8(&cpu.registers.B, cpu.registers.A);
+            LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.A);
             break;
         case 0x0E: // LD C, n8
             LD_r8_n8(&cpu, &memory, &cpu.registers.C);
@@ -948,10 +1091,10 @@ int main()
             CALL_n16(&cpu, &memory);
             break;
         case 0x7D: // LD A, L
-            LD_r8_r8(&cpu.registers.A, cpu.registers.L);
+            LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.L);
             break;
         case 0x7C: // LD A, H
-            LD_r8_r8(&cpu.registers.A, cpu.registers.H);
+            LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.H);
             break;
         case 0xC9: // RET
             RET(&cpu, &memory);
@@ -1056,25 +1199,25 @@ int main()
             JR_CC_n16(&cpu, &memory, cpu.C == 0);
             break;
         case 0x5F: // LD E, A
-            LD_r8_r8(&cpu.registers.E, cpu.registers.A);
+            LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.A);
             break;
         case 0xEE: // XOR A, n8
             XOR_A_n8(&cpu, &memory);
             break;
         case 0x79: // LD A, C
-            LD_r8_r8(&cpu.registers.A, cpu.registers.C);
+            LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.C);
             break;
         case 0x4F: // LD C, A
-            LD_r8_r8(&cpu.registers.C, cpu.registers.A);
+            LD_r8_r8(&cpu, &cpu.registers.C, cpu.registers.A);
             break;
         case 0x7A: // LD A, D
-            LD_r8_r8(&cpu.registers.A, cpu.registers.D);
+            LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.D);
             break;
         case 0x57: // LD D, A
-            LD_r8_r8(&cpu.registers.D, cpu.registers.A);
+            LD_r8_r8(&cpu, &cpu.registers.D, cpu.registers.A);
             break;
         case 0x7B: // LD A, E
-            LD_r8_r8(&cpu.registers.A, cpu.registers.E);
+            LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.E);
             break;
         case 0x25: // DEC H
             DEC_r8(&cpu, &(cpu.registers.H));
@@ -1094,28 +1237,28 @@ int main()
         case 0xCE: // ADC A, n8
             ADC_A_n8(&cpu, &memory);
             break;
-        case 0xD0:
+        case 0xD0: // RET NC
             RET_CC(&cpu, &memory, cpu.C == 0);
             break;
-        case 0xC8:
+        case 0xC8: // RET Z
             RET_CC(&cpu, &memory, cpu.Z == 1);
             break;
-        case 0x3D:
+        case 0x3D: // DEC A
             DEC_r8(&cpu, &(cpu.registers.A));
             break;
-        case 0xB6:
+        case 0xB6: // OR A, [HL]
             OR_A_HL(&cpu, &memory);
             break;
-        case 0x35:
+        case 0x35: // DEC [HL]
             DEC_HL(&cpu, &memory);
             break;
         case 0x6E: // LD L, [HL]
             LD_r8_HL(&cpu, &memory, &cpu.registers.L);
             break;
         case 0x6F: // LD L, A
-            LD_r8_r8(&cpu.registers.L, cpu.registers.A);
+            LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.A);
             break;
-        case 0x29:
+        case 0x29: // ADD HL, HL
             ADD_HL_r16(&cpu, get_HL(&cpu));
             break;
         case 0x1D: // DEC E
@@ -1128,9 +1271,9 @@ int main()
             LD_r8_n8(&cpu, &memory, &cpu.registers.L);
             break;
         case 0x5D: // LD E, L
-            LD_r8_r8(&cpu.registers.E, cpu.registers.L);
+            LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.L);
             break;
-        case 0x1B:
+        case 0x1B: // DEC DE
             DEC_DE_r16(&cpu);
             break;
         case 0x73: // LD [HL], E
@@ -1149,10 +1292,10 @@ int main()
             LD_SP_HL(&cpu);
             break;
         case 0x62: // LD H, D
-            LD_r8_r8(&cpu.registers.H, cpu.registers.D);
+            LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.D);
             break;
         case 0x6B: // LD L, E
-            LD_r8_r8(&cpu.registers.L, cpu.registers.E);
+            LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.E);
             break;
         case 0x33: // INC SP
             INC_SP(&cpu);
@@ -1164,7 +1307,7 @@ int main()
             LD_r8_HL(&cpu, &memory, &cpu.registers.A);
             break;
         case 0x67: // LD H, A
-            LD_r8_r8(&cpu.registers.H, cpu.registers.A);
+            LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.A);
             break;
         case 0xB0: // OR A, B
             OR_A(&cpu, cpu.registers.B);
@@ -1178,13 +1321,13 @@ int main()
         case 0xE8: // ADD SP, e8
             ADD_SP_s8(&cpu, &memory);
             break;
-        case 0xF8:
+        case 0xF8: // LD HL, SP + e8
             LD_HL_SP_s8(&cpu, &memory);
             break;
         case 0x3C: // INC A
             INC_r8(&cpu, &cpu.registers.A);
             break;
-        case 0xC2:
+        case 0xC2: // JP NZ, a16
             JP_CC_n16(&cpu, &memory, cpu.Z == 0);
             break;
         case 0xBB: // CP A, E
@@ -1214,12 +1357,20 @@ int main()
         case 0xCA: // JP Z, a16
             JP_CC_n16(&cpu, &memory, cpu.Z == 1);
             break;
+        case 0x76: // HALT
+            HALT(&cpu);
+            break;
+        case 0xD8: // RET C
+            RET_CC(&cpu, &memory, cpu.C == 1);
+            break;
         default:
             printf("invalid opcode: %02x\n", opcode);
             printf("PC: %02x\n", cpu.PC);
             exit(1);
             break;
         }
+        update_timer(&cpu, &memory);
+
         update_IME(&cpu, opcode);
         int handled = handle_interrupts(&cpu, &memory, file);
         if (!handled)
