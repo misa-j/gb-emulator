@@ -492,6 +492,19 @@ void LD_A_a8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 12;
 }
 
+void LD_A_C(CPU *cpu, Memory *memory)
+{
+    __uint8_t value = memory->memory[0xFF00 + cpu->registers.C];
+    cpu->registers.A = value;
+    cpu->current_t_cycles += 8;
+}
+
+void LD_C_A(CPU *cpu, Memory *memory)
+{
+    memory->memory[0xFF00 + cpu->registers.C] = cpu->registers.A;
+    cpu->current_t_cycles += 8;
+}
+
 void LD_BC_n16(CPU *cpu, Memory *memory)
 {
     __uint8_t v1 = get_opcode(memory->memory, cpu);
@@ -1014,7 +1027,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb";
+    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/08-misc instrs.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -1602,6 +1615,12 @@ int main()
             break;
         case 0xFF: // RST $38
             RST_vec(&cpu, &memory, 0x38);
+            break;
+        case 0xF2: // LDH A, [C]
+            LD_A_C(&cpu, &memory);
+            break;
+        case 0xE2: // LDH [C], A
+            LD_C_A(&cpu, &memory);
             break;
         default:
             printf("invalid opcode: %02x\n", opcode);
