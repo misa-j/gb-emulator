@@ -853,6 +853,13 @@ void CALL_n16(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 24;
 }
 
+void RST_vec(CPU *cpu, Memory *memory, __uint8_t address)
+{
+    store_PC(cpu, memory);
+    cpu->PC = address;
+    cpu->current_t_cycles += 16;
+}
+
 void RET_CC(CPU *cpu, Memory *memory, __uint8_t cc)
 {
     if (!cc)
@@ -871,6 +878,14 @@ void RET(CPU *cpu, Memory *memory)
     __uint8_t v2 = memory->memory[cpu->SP++];
     __uint16_t a16 = v1 | (v2 << 8);
     cpu->PC = a16;
+    cpu->current_t_cycles += 16;
+}
+
+void RETI(CPU *cpu, Memory *memory)
+{
+    __uint16_t a16 = get_SP(cpu, memory);
+    cpu->PC = a16;
+    cpu->IME = 1;
     cpu->current_t_cycles += 16;
 }
 
@@ -999,7 +1014,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/06-ld r,r.gb";
+    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -1542,6 +1557,51 @@ int main()
             break;
         case 0x7F: // LD [HL], L
             LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.A);
+            break;
+        case 0xD2: // JP NC, a16
+            JP_CC_n16(&cpu, &memory, cpu.C == 0);
+            break;
+        case 0xDA: // JP C, a16
+            JP_CC_n16(&cpu, &memory, cpu.C == 1);
+            break;
+        case 0xCC: // CALL Z, a16
+            CALL_CC_n16(&cpu, &memory, cpu.Z == 1);
+            break;
+        case 0xD4: // CALL NC, a16
+            CALL_CC_n16(&cpu, &memory, cpu.C == 0);
+            break;
+        case 0xDC: // CALL C, a16
+            CALL_CC_n16(&cpu, &memory, cpu.C == 1);
+            break;
+        case 0xC0: // RET NZ
+            RET_CC(&cpu, &memory, cpu.Z == 0);
+            break;
+        case 0xD9: // RETI
+            RETI(&cpu, &memory);
+            break;
+        case 0xC7: // RST $00
+            RST_vec(&cpu, &memory, 0x0);
+            break;
+        case 0xCF: // RST $08
+            RST_vec(&cpu, &memory, 0x08);
+            break;
+        case 0xD7: // RST $10
+            RST_vec(&cpu, &memory, 0x10);
+            break;
+        case 0xDF: // RST $18
+            RST_vec(&cpu, &memory, 0x18);
+            break;
+        case 0xE7: // RST $20
+            RST_vec(&cpu, &memory, 0x20);
+            break;
+        case 0xEF: // RST $28
+            RST_vec(&cpu, &memory, 0x28);
+            break;
+        case 0xF7: // RST $30
+            RST_vec(&cpu, &memory, 0x30);
+            break;
+        case 0xFF: // RST $38
+            RST_vec(&cpu, &memory, 0x38);
             break;
         default:
             printf("invalid opcode: %02x\n", opcode);
