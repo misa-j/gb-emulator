@@ -999,7 +999,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/05-op rp.gb";
+    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/06-ld r,r.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -1437,6 +1437,111 @@ int main()
             break;
         case 0x19: // ADD HL, DE
             ADD_HL_r16(&cpu, get_DE(&cpu));
+            break;
+        case 0x40: // LD B, B
+            LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.B);
+            break;
+        case 0x41: // LD B, C
+            LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.C);
+            break;
+        case 0x42: // LD B, D
+            LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.D);
+            break;
+        case 0x43: // LD B, E
+            LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.E);
+            break;
+        case 0x45: // LD B, L
+            LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.L);
+            break;
+        case 0x48: // LD C, B
+            LD_r8_r8(&cpu, &cpu.registers.C, cpu.registers.B);
+            break;
+        case 0x49: // LD C, C
+            LD_r8_r8(&cpu, &cpu.registers.C, cpu.registers.C);
+            break;
+        case 0x4A: // LD C, D
+            LD_r8_r8(&cpu, &cpu.registers.C, cpu.registers.D);
+            break;
+        case 0x4B: // LD C, E
+            LD_r8_r8(&cpu, &cpu.registers.C, cpu.registers.E);
+            break;
+        case 0x4C: // LD C, H
+            LD_r8_r8(&cpu, &cpu.registers.C, cpu.registers.H);
+            break;
+        case 0x4D: // LD C, L
+            LD_r8_r8(&cpu, &cpu.registers.C, cpu.registers.L);
+            break;
+        case 0x50: // LD D, B
+            LD_r8_r8(&cpu, &cpu.registers.D, cpu.registers.B);
+            break;
+        case 0x51: // LD D, C
+            LD_r8_r8(&cpu, &cpu.registers.D, cpu.registers.C);
+            break;
+        case 0x52: // LD D, D
+            LD_r8_r8(&cpu, &cpu.registers.D, cpu.registers.D);
+            break;
+        case 0x53: // LD D, E
+            LD_r8_r8(&cpu, &cpu.registers.D, cpu.registers.E);
+            break;
+        case 0x54: // LD D, H
+            LD_r8_r8(&cpu, &cpu.registers.D, cpu.registers.H);
+            break;
+        case 0x55: // LD D, L
+            LD_r8_r8(&cpu, &cpu.registers.D, cpu.registers.L);
+            break;
+        case 0x58: // LD E, B
+            LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.B);
+            break;
+        case 0x59: // LD E, C
+            LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.C);
+            break;
+        case 0x5A: // LD E, D
+            LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.D);
+            break;
+        case 0x5B: // LD E, E
+            LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.E);
+            break;
+        case 0x5C: // LD E, H
+            LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.H);
+            break;
+        case 0x60: // LD H, B
+            LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.B);
+            break;
+        case 0x61: // LD H, C
+            LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.C);
+            break;
+        case 0x63: // LD H, E
+            LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.E);
+            break;
+        case 0x64: // LD H, H
+            LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.H);
+            break;
+        case 0x65: // LD H, L
+            LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.L);
+            break;
+        case 0x68: // LD L, B
+            LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.B);
+            break;
+        case 0x69: // LD L, C
+            LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.C);
+            break;
+        case 0x6A: // LD L, D
+            LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.D);
+            break;
+        case 0x6C: // LD L, H
+            LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.H);
+            break;
+        case 0x6D: // LD L, L
+            LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.L);
+            break;
+        case 0x74: // LD [HL], H
+            LD_HL_r8(&cpu, &memory, cpu.registers.H);
+            break;
+        case 0x75: // LD [HL], L
+            LD_HL_r8(&cpu, &memory, cpu.registers.L);
+            break;
+        case 0x7F: // LD [HL], L
+            LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.A);
             break;
         default:
             printf("invalid opcode: %02x\n", opcode);
