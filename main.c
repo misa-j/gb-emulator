@@ -326,7 +326,7 @@ void LD_A_HLI(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void DEC_HL(CPU *cpu, Memory *memory)
+void DEC_HL_a16(CPU *cpu, Memory *memory)
 {
     __uint16_t HL = get_HL(cpu);
     __uint8_t val = memory->memory[HL];
@@ -336,6 +336,15 @@ void DEC_HL(CPU *cpu, Memory *memory)
     cpu->N = 1;
     memory->memory[HL] = val;
     cpu->current_t_cycles += 12;
+}
+
+void DEC_HL_r16(CPU *cpu, Memory *memory)
+{
+    __uint16_t HL = get_HL(cpu);
+    HL--;
+    cpu->registers.H = (HL & 0xFF00) >> 8;
+    cpu->registers.L = (HL & 0x00FF);
+    cpu->current_t_cycles += 8;
 }
 
 void DEC_BC(CPU *cpu)
@@ -990,7 +999,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/04-op r,imm.gb";
+    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/05-op rp.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -1012,7 +1021,7 @@ int main()
 
     print_cpu(&cpu, &memory, file);
     int cnt = 0;
-    while (cnt < 1300000)
+    while (cnt < 1800000)
     {
         cnt++;
 
@@ -1292,7 +1301,7 @@ int main()
             OR_A_HL(&cpu, &memory);
             break;
         case 0x35: // DEC [HL]
-            DEC_HL(&cpu, &memory);
+            DEC_HL_a16(&cpu, &memory);
             break;
         case 0x6E: // LD L, [HL]
             LD_r8_HL(&cpu, &memory, &cpu.registers.L);
@@ -1419,6 +1428,15 @@ int main()
             break;
         case 0xDE: // SBC A, n8
             SBC_A_n8(&cpu, &memory);
+            break;
+        case 0x2B: // DEC HL
+            DEC_HL_r16(&cpu, &memory);
+            break;
+        case 0x09: // ADD HL, BC
+            ADD_HL_r16(&cpu, get_BC(&cpu));
+            break;
+        case 0x19: // ADD HL, DE
+            ADD_HL_r16(&cpu, get_DE(&cpu));
             break;
         default:
             printf("invalid opcode: %02x\n", opcode);
