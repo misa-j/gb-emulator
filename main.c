@@ -573,6 +573,18 @@ void OR_A(CPU *cpu, __uint8_t val)
     cpu->current_t_cycles += 4;
 }
 
+void OR_A_n8(CPU *cpu, Memory *memory)
+{
+    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    cpu->PC++;
+    cpu->registers.A |= n8;
+    cpu->Z = cpu->registers.A == 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = 0;
+    cpu->current_t_cycles += 8;
+}
+
 void AND_A_n8(CPU *cpu, Memory *memory)
 {
     __uint8_t n8 = get_opcode(memory->memory, cpu);
@@ -609,6 +621,15 @@ void LD_HL_r8(CPU *cpu, Memory *memory, __uint8_t r8)
     cpu->current_t_cycles += 8;
 }
 
+void LD_HL_n8(CPU *cpu, Memory *memory)
+{
+    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    cpu->PC++;
+    __uint16_t HL = get_HL(cpu);
+    memory->memory[HL] = n8;
+    cpu->current_t_cycles += 12;
+}
+
 void POP_DE(CPU *cpu, Memory *memory)
 {
     cpu->registers.E = memory->memory[cpu->SP++];
@@ -641,12 +662,13 @@ void POP_HL(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 12;
 }
 
-void ADC_A(CPU *cpu, __uint8_t n8)
+void ADC_A_r8(CPU *cpu, __uint8_t n8)
 {
-    __uint8_t val = n8 + cpu->C;
-    cpu->H = (cpu->registers.A & 0xF) + (val & 0xF) > 0xF;
-    cpu->C = __builtin_add_overflow(cpu->registers.A, val, &(cpu->C));
-    cpu->registers.A += val;
+    __uint16_t result = cpu->registers.A + n8 + cpu->C;
+    __uint8_t half_result = (cpu->registers.A & 0x0F) + (n8 & 0x0F) + cpu->C;
+    cpu->H = half_result > 0xF;
+    cpu->C = result > 0xFF;
+    cpu->registers.A = result & 0xFF;
     cpu->Z = cpu->registers.A == 0;
     cpu->N = 0;
     cpu->current_t_cycles += 4;
@@ -656,7 +678,27 @@ void ADC_A_n8(CPU *cpu, Memory *memory)
 {
     __uint8_t n8 = get_opcode(memory->memory, cpu);
     cpu->PC++;
-    ADC_A(cpu, n8);
+    ADC_A_r8(cpu, n8);
+    cpu->current_t_cycles += 4;
+}
+
+void SBC_A_r8(CPU *cpu, __uint8_t n8)
+{
+    __uint16_t sub_val = n8 + cpu->C;
+    __uint8_t sub_low = (n8 & 0x0F) + cpu->C;
+    cpu->H = ((cpu->registers.A & 0x0F) < sub_low);
+    cpu->C = cpu->registers.A < sub_val;
+    cpu->registers.A -= sub_val;
+    cpu->Z = cpu->registers.A == 0;
+    cpu->N = 1;
+    cpu->current_t_cycles += 4;
+}
+
+void SBC_A_n8(CPU *cpu, Memory *memory)
+{
+    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    cpu->PC++;
+    SBC_A_r8(cpu, n8);
     cpu->current_t_cycles += 4;
 }
 
@@ -948,7 +990,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/02-interrupts.gb";
+    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/04-op r,imm.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -1362,6 +1404,21 @@ int main()
             break;
         case 0xD8: // RET C
             RET_CC(&cpu, &memory, cpu.C == 1);
+            break;
+        case 0x36: // LD [HL], n8
+            LD_HL_n8(&cpu, &memory);
+            break;
+        case 0x16: // LD D, n8
+            LD_r8_n8(&cpu, &memory, &cpu.registers.D);
+            break;
+        case 0x1E: // LD E, n8
+            LD_r8_n8(&cpu, &memory, &cpu.registers.E);
+            break;
+        case 0xF6: // OR A, n8
+            OR_A_n8(&cpu, &memory);
+            break;
+        case 0xDE: // SBC A, n8
+            SBC_A_n8(&cpu, &memory);
             break;
         default:
             printf("invalid opcode: %02x\n", opcode);
