@@ -214,6 +214,109 @@ void RR_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
+void SWAP_r8(CPU *cpu, __uint8_t *r8)
+{
+    __uint8_t value = *r8;
+    __uint8_t upper_bits = value & 0xF0;
+    __uint8_t lower_bits = value & 0x0F;
+
+    *r8 = (upper_bits >> 4) | (lower_bits << 4);
+    cpu->Z = *r8 == 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = 0;
+    cpu->current_t_cycles += 8;
+}
+
+void SRA_r8(CPU *cpu, __uint8_t *r8)
+{
+    __uint8_t val = *r8;
+    __uint8_t C = val & 1u;
+    __uint8_t sign = val & (1u << 7);
+    val >>= 1;
+    val |= sign;
+
+    *r8 = val;
+    cpu->Z = val == 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 8;
+}
+
+void SRL_r8(CPU *cpu, __uint8_t *r8)
+{
+    __uint8_t val = *r8;
+    __uint8_t C = val & 1u;
+    val >>= 1;
+
+    *r8 = val;
+    cpu->Z = val == 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 8;
+}
+
+void RLC_r8(CPU *cpu, __uint8_t *r8)
+{
+    __uint8_t value = *r8;
+    __uint8_t C = (value & (1u << 7)) ? 1 : 0;
+    value <<= 1;
+    value |= C;
+
+    *r8 = value;
+    cpu->Z = value == 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 8;
+}
+
+void RL_r8(CPU *cpu, __uint8_t *r8)
+{
+    __uint8_t value = *r8;
+    __uint8_t C = (value & (1u << 7)) ? 1 : 0;
+    value <<= 1;
+    value |= cpu->C;
+
+    *r8 = value;
+    cpu->Z = value == 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 8;
+}
+
+void SLA_r8(CPU *cpu, __uint8_t *r8)
+{
+    __uint8_t value = *r8;
+    __uint8_t C = (value & (1u << 7)) ? 1 : 0;
+    value <<= 1;
+
+    *r8 = value;
+    cpu->Z = value == 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 8;
+}
+
+void RRC_r8(CPU *cpu, __uint8_t *r8)
+{
+    __uint8_t value = *r8;
+    __uint8_t C = value & 1u;
+    value >>= 1;
+    value |= (C << 7);
+
+    *r8 = value;
+    cpu->Z = value == 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 8;
+}
+
 void RRA(CPU *cpu, __uint8_t *r8)
 {
     __uint8_t val = *r8;
@@ -222,6 +325,42 @@ void RRA(CPU *cpu, __uint8_t *r8)
     val |= (cpu->C << 7);
 
     *r8 = val;
+    cpu->Z = 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 4;
+}
+
+void RLCA(CPU *cpu)
+{
+    __uint8_t C = (cpu->registers.A & (1u << 7)) ? 1 : 0;
+    cpu->registers.A <<= 1;
+    cpu->registers.A |= C;
+    cpu->Z = 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 4;
+}
+
+void RLA(CPU *cpu)
+{
+    __uint8_t C = (cpu->registers.A & (1u << 7)) ? 1 : 0;
+    cpu->registers.A <<= 1;
+    cpu->registers.A |= cpu->C;
+    cpu->Z = 0;
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = C;
+    cpu->current_t_cycles += 4;
+}
+
+void RRCA(CPU *cpu)
+{
+    __uint8_t C = cpu->registers.A & 1u;
+    cpu->registers.A >>= 1;
+    cpu->registers.A |= (C << 7);
     cpu->Z = 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -289,6 +428,16 @@ void SUB_A_n8(CPU *cpu, Memory *memory)
     cpu->Z = cpu->registers.A == 0;
     cpu->N = 1;
     cpu->current_t_cycles += 8;
+}
+
+void SUB_A_r8(CPU *cpu, __uint8_t value)
+{
+    cpu->H = (cpu->registers.A & 0x0F) < (value & 0x0F);
+    cpu->C = cpu->registers.A < value;
+    cpu->registers.A -= value;
+    cpu->Z = cpu->registers.A == 0;
+    cpu->N = 1;
+    cpu->current_t_cycles += 4;
 }
 
 void INC_HL(CPU *cpu, Memory *memory)
@@ -585,7 +734,7 @@ void XOR_A_HL(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void OR_A(CPU *cpu, __uint8_t val)
+void OR_A_r8(CPU *cpu, __uint8_t val)
 {
     cpu->registers.A |= val;
     cpu->Z = cpu->registers.A == 0;
@@ -632,7 +781,7 @@ void AND_A_r8(CPU *cpu, __uint8_t val)
 void OR_A_HL(CPU *cpu, Memory *memory)
 {
     __uint16_t HL = get_HL(cpu);
-    OR_A(cpu, memory->memory[HL]);
+    OR_A_r8(cpu, memory->memory[HL]);
     cpu->current_t_cycles += 4;
 }
 
@@ -762,6 +911,16 @@ void ADD_A_n8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
+void ADD_A_r8(CPU *cpu, __uint8_t value)
+{
+    cpu->H = (cpu->registers.A & 0xF) + (value & 0xF) > 0xF;
+    cpu->C = __builtin_add_overflow(cpu->registers.A, value, &(cpu->C));
+    cpu->registers.A += value;
+    cpu->Z = cpu->registers.A == 0;
+    cpu->N = 0;
+    cpu->current_t_cycles += 4;
+}
+
 void LD_HL_SP_s8(CPU *cpu, Memory *memory)
 {
     __uint16_t HL = get_HL(cpu);
@@ -775,6 +934,30 @@ void LD_HL_SP_s8(CPU *cpu, Memory *memory)
     cpu->N = 0;
     store_HL(cpu, result);
     cpu->current_t_cycles += 12;
+}
+
+void CPL(CPU *cpu)
+{
+    cpu->registers.A = ~cpu->registers.A;
+    cpu->N = 1;
+    cpu->H = 1;
+    cpu->current_t_cycles += 4;
+}
+
+void SCF(CPU *cpu)
+{
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = 1;
+    cpu->current_t_cycles += 4;
+}
+
+void CCF(CPU *cpu)
+{
+    cpu->N = 0;
+    cpu->H = 0;
+    cpu->C = !cpu->C;
+    cpu->current_t_cycles += 4;
 }
 
 void CP_A_n8(CPU *cpu, Memory *memory)
@@ -909,25 +1092,174 @@ void exec_CB(CPU *cpu, Memory *memory)
     cpu->PC++;
     switch (opcode)
     {
-    case 0x38:
-        __uint8_t C = (cpu->registers.B & 1u);
-        cpu->registers.B >>= 1;
-        cpu->Z = cpu->registers.B == 0;
-        cpu->N = 0;
-        cpu->H = 0;
-        cpu->C = C;
-        cpu->current_t_cycles += 8;
+    case 0x38: // SRL B
+        SRL_r8(cpu, &cpu->registers.B);
         break;
-    case 0x19:
-        RR_r8(cpu, &(cpu->registers.C));
+    case 0x19: // RR C
+        RR_r8(cpu, &cpu->registers.C);
         break;
-    case 0x1A:
-        RR_r8(cpu, &(cpu->registers.D));
+    case 0x1A: // RR D
+        RR_r8(cpu, &cpu->registers.D);
         break;
-    case 0x1B:
-        RR_r8(cpu, &(cpu->registers.E));
+    case 0x1B: // RR E
+        RR_r8(cpu, &cpu->registers.E);
         break;
-
+    case 0x00: // RLC B
+        RLC_r8(cpu, &cpu->registers.B);
+        break;
+    case 0x01: // RLC C
+        RLC_r8(cpu, &cpu->registers.C);
+        break;
+    case 0x02: // RLC D
+        RLC_r8(cpu, &cpu->registers.D);
+        break;
+    case 0x03: // RLC E
+        RLC_r8(cpu, &cpu->registers.E);
+        break;
+    case 0x04: // RLC H
+        RLC_r8(cpu, &cpu->registers.H);
+        break;
+    case 0x05: // RLC L
+        RLC_r8(cpu, &cpu->registers.L);
+        break;
+    case 0x07: // RLC A
+        RLC_r8(cpu, &cpu->registers.A);
+        break;
+    case 0x08: // RRC B
+        RRC_r8(cpu, &cpu->registers.B);
+        break;
+    case 0x09: // RRC C
+        RRC_r8(cpu, &cpu->registers.C);
+        break;
+    case 0x0A: // RRC D
+        RRC_r8(cpu, &cpu->registers.D);
+        break;
+    case 0x0B: // RRC E
+        RRC_r8(cpu, &cpu->registers.E);
+        break;
+    case 0x0C: // RRC H
+        RRC_r8(cpu, &cpu->registers.H);
+        break;
+    case 0x0D: // RRC L
+        RRC_r8(cpu, &cpu->registers.L);
+        break;
+    case 0x0F: // RRC A
+        RRC_r8(cpu, &cpu->registers.A);
+        break;
+    case 0x10: // RL B
+        RL_r8(cpu, &cpu->registers.B);
+        break;
+    case 0x11: // RL C
+        RL_r8(cpu, &cpu->registers.C);
+        break;
+    case 0x12: // RL D
+        RL_r8(cpu, &cpu->registers.D);
+        break;
+    case 0x13: // RL E
+        RL_r8(cpu, &cpu->registers.E);
+        break;
+    case 0x14: // RL H
+        RL_r8(cpu, &cpu->registers.H);
+        break;
+    case 0x15: // RL L
+        RL_r8(cpu, &cpu->registers.L);
+        break;
+    case 0x17: // RL A
+        RL_r8(cpu, &cpu->registers.A);
+        break;
+    case 0x18: // RL B
+        RR_r8(cpu, &cpu->registers.B);
+        break;
+    case 0x1C: // RL H
+        RR_r8(cpu, &cpu->registers.H);
+        break;
+    case 0x1D: // RL L
+        RR_r8(cpu, &cpu->registers.L);
+        break;
+    case 0x1F: // RL A
+        RR_r8(cpu, &cpu->registers.A);
+        break;
+    case 0x20: // SLA B
+        SLA_r8(cpu, &cpu->registers.B);
+        break;
+    case 0x21: // SLA C
+        SLA_r8(cpu, &cpu->registers.C);
+        break;
+    case 0x22: // SLA D
+        SLA_r8(cpu, &cpu->registers.D);
+        break;
+    case 0x23: // SLA E
+        SLA_r8(cpu, &cpu->registers.E);
+        break;
+    case 0x24: // SLA H
+        SLA_r8(cpu, &cpu->registers.H);
+        break;
+    case 0x25: // SLA L
+        SLA_r8(cpu, &cpu->registers.L);
+        break;
+    case 0x27: // SLA A
+        SLA_r8(cpu, &cpu->registers.A);
+        break;
+    case 0x28: // SRA B
+        SRA_r8(cpu, &cpu->registers.B);
+        break;
+    case 0x29: // SRA C
+        SRA_r8(cpu, &cpu->registers.C);
+        break;
+    case 0x2A: // SRA D
+        SRA_r8(cpu, &cpu->registers.D);
+        break;
+    case 0x2B: // SRA E
+        SRA_r8(cpu, &cpu->registers.E);
+        break;
+    case 0x2C: // SRA H
+        SRA_r8(cpu, &cpu->registers.H);
+        break;
+    case 0x2D: // SRA L
+        SRA_r8(cpu, &cpu->registers.L);
+        break;
+    case 0x2F: // SRA F
+        SRA_r8(cpu, &cpu->registers.A);
+        break;
+    case 0x30: // SWAP B
+        SWAP_r8(cpu, &cpu->registers.B);
+        break;
+    case 0x31: // SWAP C
+        SWAP_r8(cpu, &cpu->registers.C);
+        break;
+    case 0x32: // SWAP D
+        SWAP_r8(cpu, &cpu->registers.D);
+        break;
+    case 0x33: // SWAP E
+        SWAP_r8(cpu, &cpu->registers.E);
+        break;
+    case 0x34: // SWAP H
+        SWAP_r8(cpu, &cpu->registers.H);
+        break;
+    case 0x35: // SWAP L
+        SWAP_r8(cpu, &cpu->registers.L);
+        break;
+    case 0x37: // SWAP A
+        SWAP_r8(cpu, &cpu->registers.A);
+        break;
+    case 0x39: // SRL C
+        SRL_r8(cpu, &cpu->registers.C);
+        break;
+    case 0x3A: // SRL D
+        SRL_r8(cpu, &cpu->registers.D);
+        break;
+    case 0x3B: // SRL E
+        SRL_r8(cpu, &cpu->registers.E);
+        break;
+    case 0x3C: // SRL H
+        SRL_r8(cpu, &cpu->registers.H);
+        break;
+    case 0x3D: // SRL L
+        SRL_r8(cpu, &cpu->registers.L);
+        break;
+    case 0x3F: // SRL A
+        SRL_r8(cpu, &cpu->registers.A);
+        break;
     default:
         printf("invalid CB opcode: %02x\n", opcode);
         printf("PC: %02x\n", cpu->PC);
@@ -1027,7 +1359,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/08-misc instrs.gb";
+    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/09-op r,r.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -1049,7 +1381,7 @@ int main()
 
     print_cpu(&cpu, &memory, file);
     int cnt = 0;
-    while (cnt < 1800000)
+    while (cnt < 5000000)
     {
         cnt++;
 
@@ -1131,7 +1463,7 @@ int main()
             LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.B);
             break;
         case 0xB1: // OR A, C
-            OR_A(&cpu, cpu.registers.C);
+            OR_A_r8(&cpu, cpu.registers.C);
             break;
         case 0xA7: // AND A, A
             AND_A_r8(&cpu, cpu.registers.A);
@@ -1245,7 +1577,7 @@ int main()
             SUB_A_n8(&cpu, &memory);
             break;
         case 0xB7: // OR A, A
-            OR_A(&cpu, cpu.registers.A);
+            OR_A_r8(&cpu, cpu.registers.A);
             break;
         case 0xD5: // PUSH DE
             PUSH_DE(&cpu, &memory);
@@ -1389,7 +1721,7 @@ int main()
             LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.A);
             break;
         case 0xB0: // OR A, B
-            OR_A(&cpu, cpu.registers.B);
+            OR_A_r8(&cpu, cpu.registers.B);
             break;
         case 0x3B: // DEC SP
             DEC_SP(&cpu);
@@ -1621,6 +1953,162 @@ int main()
             break;
         case 0xE2: // LDH [C], A
             LD_C_A(&cpu, &memory);
+            break;
+        case 0x2F: // CPL
+            CPL(&cpu);
+            break;
+        case 0x37: // SCF
+            SCF(&cpu);
+            break;
+        case 0x3F: // CCF
+            CCF(&cpu);
+            break;
+        case 0xB2: // OR A, D
+            OR_A_r8(&cpu, cpu.registers.D);
+            break;
+        case 0xB3: // OR A, E
+            OR_A_r8(&cpu, cpu.registers.E);
+            break;
+        case 0xB4: // OR A, H
+            OR_A_r8(&cpu, cpu.registers.H);
+            break;
+        case 0xB5: // OR A, L
+            OR_A_r8(&cpu, cpu.registers.L);
+            break;
+        case 0xBC: // OR A, H
+            CP_A_r8(&cpu, cpu.registers.H);
+            break;
+        case 0xBD: // OR A, L
+            CP_A_r8(&cpu, cpu.registers.L);
+            break;
+        case 0xBF: // OR A, A
+            CP_A_r8(&cpu, cpu.registers.A);
+            break;
+        case 0x80: // ADD A, B
+            ADD_A_r8(&cpu, cpu.registers.B);
+            break;
+        case 0x81: // ADD A, C
+            ADD_A_r8(&cpu, cpu.registers.C);
+            break;
+        case 0x82: // ADD A, D
+            ADD_A_r8(&cpu, cpu.registers.D);
+            break;
+        case 0x83: // ADD A, E
+            ADD_A_r8(&cpu, cpu.registers.E);
+            break;
+        case 0x84: // ADD A, H
+            ADD_A_r8(&cpu, cpu.registers.H);
+            break;
+        case 0x85: // ADD A, L
+            ADD_A_r8(&cpu, cpu.registers.L);
+            break;
+        case 0x87: // ADD A, L
+            ADD_A_r8(&cpu, cpu.registers.A);
+            break;
+        case 0x88: // ADC A, B
+            ADC_A_r8(&cpu, cpu.registers.B);
+            break;
+        case 0x89: // ADC A, C
+            ADC_A_r8(&cpu, cpu.registers.C);
+            break;
+        case 0x8A: // ADC A, D
+            ADC_A_r8(&cpu, cpu.registers.D);
+            break;
+        case 0x8B: // ADC A, E
+            ADC_A_r8(&cpu, cpu.registers.E);
+            break;
+        case 0x8C: // ADC A, H
+            ADC_A_r8(&cpu, cpu.registers.H);
+            break;
+        case 0x8D: // ADC A, L
+            ADC_A_r8(&cpu, cpu.registers.L);
+            break;
+        case 0x8F: // ADC A, A
+            ADC_A_r8(&cpu, cpu.registers.A);
+            break;
+        case 0x90: // SUB A, B
+            SUB_A_r8(&cpu, cpu.registers.B);
+            break;
+        case 0x91: // SUB A, C
+            SUB_A_r8(&cpu, cpu.registers.C);
+            break;
+        case 0x92: // SUB A, D
+            SUB_A_r8(&cpu, cpu.registers.D);
+            break;
+        case 0x93: // SUB A, E
+            SUB_A_r8(&cpu, cpu.registers.E);
+            break;
+        case 0x94: // SUB A, H
+            SUB_A_r8(&cpu, cpu.registers.H);
+            break;
+        case 0x95: // SUB A, L
+            SUB_A_r8(&cpu, cpu.registers.L);
+            break;
+        case 0x97: // SUB A, A
+            SUB_A_r8(&cpu, cpu.registers.A);
+            break;
+        case 0x98: // SUB A, B
+            SBC_A_r8(&cpu, cpu.registers.B);
+            break;
+        case 0x99: // SUB A, C
+            SBC_A_r8(&cpu, cpu.registers.C);
+            break;
+        case 0x9A: // SUB A, D
+            SBC_A_r8(&cpu, cpu.registers.D);
+            break;
+        case 0x9B: // SUB A, E
+            SBC_A_r8(&cpu, cpu.registers.E);
+            break;
+        case 0x9C: // SUB A, H
+            SBC_A_r8(&cpu, cpu.registers.H);
+            break;
+        case 0x9D: // SUB A, L
+            SBC_A_r8(&cpu, cpu.registers.L);
+            break;
+        case 0x9F: // SUB A, A
+            SBC_A_r8(&cpu, cpu.registers.A);
+            break;
+        case 0xA0: // AND A, B
+            AND_A_r8(&cpu, cpu.registers.B);
+            break;
+        case 0xA1: // AND A, C
+            AND_A_r8(&cpu, cpu.registers.C);
+            break;
+        case 0xA2: // AND A, D
+            AND_A_r8(&cpu, cpu.registers.D);
+            break;
+        case 0xA3: // AND A, E
+            AND_A_r8(&cpu, cpu.registers.E);
+            break;
+        case 0xA4: // AND A, H
+            AND_A_r8(&cpu, cpu.registers.H);
+            break;
+        case 0xA5: // AND A, L
+            AND_A_r8(&cpu, cpu.registers.L);
+            break;
+        case 0xA8: // XOR A, B
+            XOR_A_r8(&cpu, cpu.registers.B);
+            break;
+        case 0xAA: // XOR A, D
+            XOR_A_r8(&cpu, cpu.registers.D);
+            break;
+        case 0xAB: // XOR A, E
+            XOR_A_r8(&cpu, cpu.registers.E);
+            break;
+        case 0xAC: // XOR A, H
+            XOR_A_r8(&cpu, cpu.registers.H);
+            break;
+        case 0x15: // DEC D
+            DEC_r8(&cpu, &cpu.registers.D);
+            break;
+        case 0x07: // RLCA
+            RLCA(&cpu);
+            break;
+        case 0x17: // RLA
+            RLA(&cpu);
+            break;
+        case 0x0F: // RRCA
+            RRCA(&cpu);
             break;
         default:
             printf("invalid opcode: %02x\n", opcode);
