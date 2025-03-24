@@ -258,6 +258,29 @@ void SRL_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
+void BIT_u3_r8(CPU *cpu, __uint8_t u3, __uint8_t *r8)
+{
+    __uint8_t mask = 1 << u3;
+    cpu->Z = (*r8 & mask) ? 0 : 1;
+    cpu->N = 0;
+    cpu->H = 1;
+    cpu->current_t_cycles += 8;
+}
+
+void RES_u3_r8(CPU *cpu, __uint8_t u3, __uint8_t *r8)
+{
+    __uint8_t mask = ~(1 << u3);
+    *r8 &= mask;
+    cpu->current_t_cycles += 8;
+}
+
+void SET_u3_r8(CPU *cpu, __uint8_t u3, __uint8_t *r8)
+{
+    __uint8_t mask = 1 << u3;
+    *r8 |= mask;
+    cpu->current_t_cycles += 8;
+}
+
 void RLC_r8(CPU *cpu, __uint8_t *r8)
 {
     __uint8_t value = *r8;
@@ -1092,18 +1115,6 @@ void exec_CB(CPU *cpu, Memory *memory)
     cpu->PC++;
     switch (opcode)
     {
-    case 0x38: // SRL B
-        SRL_r8(cpu, &cpu->registers.B);
-        break;
-    case 0x19: // RR C
-        RR_r8(cpu, &cpu->registers.C);
-        break;
-    case 0x1A: // RR D
-        RR_r8(cpu, &cpu->registers.D);
-        break;
-    case 0x1B: // RR E
-        RR_r8(cpu, &cpu->registers.E);
-        break;
     case 0x00: // RLC B
         RLC_r8(cpu, &cpu->registers.B);
         break;
@@ -1169,6 +1180,15 @@ void exec_CB(CPU *cpu, Memory *memory)
         break;
     case 0x18: // RL B
         RR_r8(cpu, &cpu->registers.B);
+        break;
+    case 0x19: // RR C
+        RR_r8(cpu, &cpu->registers.C);
+        break;
+    case 0x1A: // RR D
+        RR_r8(cpu, &cpu->registers.D);
+        break;
+    case 0x1B: // RR E
+        RR_r8(cpu, &cpu->registers.E);
         break;
     case 0x1C: // RL H
         RR_r8(cpu, &cpu->registers.H);
@@ -1242,6 +1262,9 @@ void exec_CB(CPU *cpu, Memory *memory)
     case 0x37: // SWAP A
         SWAP_r8(cpu, &cpu->registers.A);
         break;
+    case 0x38: // SRL B
+        SRL_r8(cpu, &cpu->registers.B);
+        break;
     case 0x39: // SRL C
         SRL_r8(cpu, &cpu->registers.C);
         break;
@@ -1259,6 +1282,510 @@ void exec_CB(CPU *cpu, Memory *memory)
         break;
     case 0x3F: // SRL A
         SRL_r8(cpu, &cpu->registers.A);
+        break;
+    case 0x40: // BIT 0, B
+        BIT_u3_r8(cpu, 0, &cpu->registers.B);
+        break;
+    case 0x41: // BIT 0, C
+        BIT_u3_r8(cpu, 0, &cpu->registers.C);
+        break;
+    case 0x42: // BIT 0, D
+        BIT_u3_r8(cpu, 0, &cpu->registers.D);
+        break;
+    case 0x43: // BIT 0, E
+        BIT_u3_r8(cpu, 0, &cpu->registers.E);
+        break;
+    case 0x44: // BIT 0, H
+        BIT_u3_r8(cpu, 0, &cpu->registers.H);
+        break;
+    case 0x45: // BIT 0, L
+        BIT_u3_r8(cpu, 0, &cpu->registers.L);
+        break;
+    case 0x47: // BIT 0, A
+        BIT_u3_r8(cpu, 0, &cpu->registers.A);
+        break;
+    case 0x48: // BIT 1, B
+        BIT_u3_r8(cpu, 1, &cpu->registers.B);
+        break;
+    case 0x49: // BIT 1, C
+        BIT_u3_r8(cpu, 1, &cpu->registers.C);
+        break;
+    case 0x4A: // BIT 1, D
+        BIT_u3_r8(cpu, 1, &cpu->registers.D);
+        break;
+    case 0x4B: // BIT 1, E
+        BIT_u3_r8(cpu, 1, &cpu->registers.E);
+        break;
+    case 0x4C: // BIT 1, H
+        BIT_u3_r8(cpu, 1, &cpu->registers.H);
+        break;
+    case 0x4D: // BIT 1, L
+        BIT_u3_r8(cpu, 1, &cpu->registers.L);
+        break;
+    case 0x4F: // BIT 1, A
+        BIT_u3_r8(cpu, 1, &cpu->registers.A);
+        break;
+    case 0x50: // BIT 2, B
+        BIT_u3_r8(cpu, 2, &cpu->registers.B);
+        break;
+    case 0x51: // BIT 2, C
+        BIT_u3_r8(cpu, 2, &cpu->registers.C);
+        break;
+    case 0x52: // BIT 2, D
+        BIT_u3_r8(cpu, 2, &cpu->registers.D);
+        break;
+    case 0x53: // BIT 2, E
+        BIT_u3_r8(cpu, 2, &cpu->registers.E);
+        break;
+    case 0x54: // BIT 2, H
+        BIT_u3_r8(cpu, 2, &cpu->registers.H);
+        break;
+    case 0x55: // BIT 2, L
+        BIT_u3_r8(cpu, 2, &cpu->registers.L);
+        break;
+    case 0x57: // BIT 2, A
+        BIT_u3_r8(cpu, 2, &cpu->registers.A);
+        break;
+    case 0x58: // BIT 3, B
+        BIT_u3_r8(cpu, 3, &cpu->registers.B);
+        break;
+    case 0x59: // BIT 3, C
+        BIT_u3_r8(cpu, 3, &cpu->registers.C);
+        break;
+    case 0x5A: // BIT 3, D
+        BIT_u3_r8(cpu, 3, &cpu->registers.D);
+        break;
+    case 0x5B: // BIT 3, E
+        BIT_u3_r8(cpu, 3, &cpu->registers.E);
+        break;
+    case 0x5C: // BIT 3, H
+        BIT_u3_r8(cpu, 3, &cpu->registers.H);
+        break;
+    case 0x5D: // BIT 3, L
+        BIT_u3_r8(cpu, 3, &cpu->registers.L);
+        break;
+    case 0x5F: // BIT 3, A
+        BIT_u3_r8(cpu, 3, &cpu->registers.A);
+        break;
+    case 0x60: // BIT 4, B
+        BIT_u3_r8(cpu, 4, &cpu->registers.B);
+        break;
+    case 0x61: // BIT 4, C
+        BIT_u3_r8(cpu, 4, &cpu->registers.C);
+        break;
+    case 0x62: // BIT 4, D
+        BIT_u3_r8(cpu, 4, &cpu->registers.D);
+        break;
+    case 0x63: // BIT 4, E
+        BIT_u3_r8(cpu, 4, &cpu->registers.E);
+        break;
+    case 0x64: // BIT 4, H
+        BIT_u3_r8(cpu, 4, &cpu->registers.H);
+        break;
+    case 0x65: // BIT 4, L
+        BIT_u3_r8(cpu, 4, &cpu->registers.L);
+        break;
+    case 0x67: // BIT 4, A
+        BIT_u3_r8(cpu, 4, &cpu->registers.A);
+        break;
+    case 0x68: // BIT 5, B
+        BIT_u3_r8(cpu, 5, &cpu->registers.B);
+        break;
+    case 0x69: // BIT 5, C
+        BIT_u3_r8(cpu, 5, &cpu->registers.C);
+        break;
+    case 0x6A: // BIT 5, D
+        BIT_u3_r8(cpu, 5, &cpu->registers.D);
+        break;
+    case 0x6B: // BIT 5, E
+        BIT_u3_r8(cpu, 5, &cpu->registers.E);
+        break;
+    case 0x6C: // BIT 5, H
+        BIT_u3_r8(cpu, 5, &cpu->registers.H);
+        break;
+    case 0x6D: // BIT 5, L
+        BIT_u3_r8(cpu, 5, &cpu->registers.L);
+        break;
+    case 0x6F: // BIT 5, A
+        BIT_u3_r8(cpu, 5, &cpu->registers.A);
+        break;
+    case 0x70: // BIT 6, B
+        BIT_u3_r8(cpu, 6, &cpu->registers.B);
+        break;
+    case 0x71: // BIT 6, C
+        BIT_u3_r8(cpu, 6, &cpu->registers.C);
+        break;
+    case 0x72: // BIT 6, D
+        BIT_u3_r8(cpu, 6, &cpu->registers.D);
+        break;
+    case 0x73: // BIT 6, E
+        BIT_u3_r8(cpu, 6, &cpu->registers.E);
+        break;
+    case 0x74: // BIT 6, H
+        BIT_u3_r8(cpu, 6, &cpu->registers.H);
+        break;
+    case 0x75: // BIT 6, L
+        BIT_u3_r8(cpu, 6, &cpu->registers.L);
+        break;
+    case 0x77: // BIT 6, A
+        BIT_u3_r8(cpu, 6, &cpu->registers.A);
+        break;
+    case 0x78: // BIT 7, B
+        BIT_u3_r8(cpu, 7, &cpu->registers.B);
+        break;
+    case 0x79: // BIT 7, C
+        BIT_u3_r8(cpu, 7, &cpu->registers.C);
+        break;
+    case 0x7A: // BIT 7, D
+        BIT_u3_r8(cpu, 7, &cpu->registers.D);
+        break;
+    case 0x7B: // BIT 7, E
+        BIT_u3_r8(cpu, 7, &cpu->registers.E);
+        break;
+    case 0x7C: // BIT 7, H
+        BIT_u3_r8(cpu, 7, &cpu->registers.H);
+        break;
+    case 0x7D: // BIT 7, L
+        BIT_u3_r8(cpu, 7, &cpu->registers.L);
+        break;
+    case 0x7F: // BIT 7, A
+        BIT_u3_r8(cpu, 7, &cpu->registers.A);
+        break;
+    case 0x80: // RES 0, B
+        RES_u3_r8(cpu, 0, &cpu->registers.B);
+        break;
+    case 0x81: // RES 0, C
+        RES_u3_r8(cpu, 0, &cpu->registers.C);
+        break;
+    case 0x82: // RES 0, D
+        RES_u3_r8(cpu, 0, &cpu->registers.D);
+        break;
+    case 0x83: // RES 0, E
+        RES_u3_r8(cpu, 0, &cpu->registers.E);
+        break;
+    case 0x84: // RES 0, H
+        RES_u3_r8(cpu, 0, &cpu->registers.H);
+        break;
+    case 0x85: // RES 0, L
+        RES_u3_r8(cpu, 0, &cpu->registers.L);
+        break;
+    case 0x87: // RES 0, A
+        RES_u3_r8(cpu, 0, &cpu->registers.A);
+        break;
+    case 0x88: // RES 1, B
+        RES_u3_r8(cpu, 1, &cpu->registers.B);
+        break;
+    case 0x89: // RES 1, C
+        RES_u3_r8(cpu, 1, &cpu->registers.C);
+        break;
+    case 0x8A: // RES 1, D
+        RES_u3_r8(cpu, 1, &cpu->registers.D);
+        break;
+    case 0x8B: // RES 1, E
+        RES_u3_r8(cpu, 1, &cpu->registers.E);
+        break;
+    case 0x8C: // RES 1, H
+        RES_u3_r8(cpu, 1, &cpu->registers.H);
+        break;
+    case 0x8D: // RES 1, L
+        RES_u3_r8(cpu, 1, &cpu->registers.L);
+        break;
+    case 0x8F: // RES 1, A
+        RES_u3_r8(cpu, 1, &cpu->registers.A);
+        break;
+    case 0x90: // RES 2, B
+        RES_u3_r8(cpu, 2, &cpu->registers.B);
+        break;
+    case 0x91: // RES 2, C
+        RES_u3_r8(cpu, 2, &cpu->registers.C);
+        break;
+    case 0x92: // RES 2, D
+        RES_u3_r8(cpu, 2, &cpu->registers.D);
+        break;
+    case 0x93: // RES 2, E
+        RES_u3_r8(cpu, 2, &cpu->registers.E);
+        break;
+    case 0x94: // RES 2, H
+        RES_u3_r8(cpu, 2, &cpu->registers.H);
+        break;
+    case 0x95: // RES 2, L
+        RES_u3_r8(cpu, 2, &cpu->registers.L);
+        break;
+    case 0x97: // RES 2, A
+        RES_u3_r8(cpu, 2, &cpu->registers.A);
+        break;
+    case 0x98: // RES 3, B
+        RES_u3_r8(cpu, 3, &cpu->registers.B);
+        break;
+    case 0x99: // RES 3, C
+        RES_u3_r8(cpu, 3, &cpu->registers.C);
+        break;
+    case 0x9A: // RES 3, D
+        RES_u3_r8(cpu, 3, &cpu->registers.D);
+        break;
+    case 0x9B: // RES 3, E
+        RES_u3_r8(cpu, 3, &cpu->registers.E);
+        break;
+    case 0x9C: // RES 3, H
+        RES_u3_r8(cpu, 3, &cpu->registers.H);
+        break;
+    case 0x9D: // RES 3, L
+        RES_u3_r8(cpu, 3, &cpu->registers.L);
+        break;
+    case 0x9F: // RES 3, A
+        RES_u3_r8(cpu, 3, &cpu->registers.A);
+        break;
+    case 0xA0: // RES 4, B
+        RES_u3_r8(cpu, 4, &cpu->registers.B);
+        break;
+    case 0xA1: // RES 4, C
+        RES_u3_r8(cpu, 4, &cpu->registers.C);
+        break;
+    case 0xA2: // RES 4, D
+        RES_u3_r8(cpu, 4, &cpu->registers.D);
+        break;
+    case 0xA3: // RES 4, E
+        RES_u3_r8(cpu, 4, &cpu->registers.E);
+        break;
+    case 0xA4: // RES 4, H
+        RES_u3_r8(cpu, 4, &cpu->registers.H);
+        break;
+    case 0xA5: // RES 4, L
+        RES_u3_r8(cpu, 4, &cpu->registers.L);
+        break;
+    case 0xA7: // RES 4, A
+        RES_u3_r8(cpu, 4, &cpu->registers.A);
+        break;
+    case 0xA8: // RES 5, B
+        RES_u3_r8(cpu, 5, &cpu->registers.B);
+        break;
+    case 0xA9: // RES 5, C
+        RES_u3_r8(cpu, 5, &cpu->registers.C);
+        break;
+    case 0xAA: // RES 5, D
+        RES_u3_r8(cpu, 5, &cpu->registers.D);
+        break;
+    case 0xAB: // RES 5, E
+        RES_u3_r8(cpu, 5, &cpu->registers.E);
+        break;
+    case 0xAC: // RES 5, H
+        RES_u3_r8(cpu, 5, &cpu->registers.H);
+        break;
+    case 0xAD: // RES 5, L
+        RES_u3_r8(cpu, 5, &cpu->registers.L);
+        break;
+    case 0xAF: // RES 5, A
+        RES_u3_r8(cpu, 5, &cpu->registers.A);
+        break;
+    case 0xB0: // RES 6, B
+        RES_u3_r8(cpu, 6, &cpu->registers.B);
+        break;
+    case 0xB1: // RES 6, C
+        RES_u3_r8(cpu, 6, &cpu->registers.C);
+        break;
+    case 0xB2: // RES 6, D
+        RES_u3_r8(cpu, 6, &cpu->registers.D);
+        break;
+    case 0xB3: // RES 6, E
+        RES_u3_r8(cpu, 6, &cpu->registers.E);
+        break;
+    case 0xB4: // RES 6, H
+        RES_u3_r8(cpu, 6, &cpu->registers.H);
+        break;
+    case 0xB5: // RES 6, L
+        RES_u3_r8(cpu, 6, &cpu->registers.L);
+        break;
+    case 0xB7: // RES 6, A
+        RES_u3_r8(cpu, 6, &cpu->registers.A);
+        break;
+    case 0xB8: // RES 7, B
+        RES_u3_r8(cpu, 7, &cpu->registers.B);
+        break;
+    case 0xB9: // RES 7, C
+        RES_u3_r8(cpu, 7, &cpu->registers.C);
+        break;
+    case 0xBA: // RES 7, D
+        RES_u3_r8(cpu, 7, &cpu->registers.D);
+        break;
+    case 0xBB: // RES 7, E
+        RES_u3_r8(cpu, 7, &cpu->registers.E);
+        break;
+    case 0xBC: // RES 7, H
+        RES_u3_r8(cpu, 7, &cpu->registers.H);
+        break;
+    case 0xBD: // RES 7, L
+        RES_u3_r8(cpu, 7, &cpu->registers.L);
+        break;
+    case 0xBF: // RES 7, A
+        RES_u3_r8(cpu, 7, &cpu->registers.A);
+        break;
+    case 0xC0: // SET 0, B
+        SET_u3_r8(cpu, 0, &cpu->registers.B);
+        break;
+    case 0xC1: // SET 0, C
+        SET_u3_r8(cpu, 0, &cpu->registers.C);
+        break;
+    case 0xC2: // SET 0, D
+        SET_u3_r8(cpu, 0, &cpu->registers.D);
+        break;
+    case 0xC3: // SET 0, E
+        SET_u3_r8(cpu, 0, &cpu->registers.E);
+        break;
+    case 0xC4: // SET 0, H
+        SET_u3_r8(cpu, 0, &cpu->registers.H);
+        break;
+    case 0xC5: // SET 0, L
+        SET_u3_r8(cpu, 0, &cpu->registers.L);
+        break;
+    case 0xC7: // SET 0, A
+        SET_u3_r8(cpu, 0, &cpu->registers.A);
+        break;
+    case 0xC8: // SET 1, B
+        SET_u3_r8(cpu, 1, &cpu->registers.B);
+        break;
+    case 0xC9: // SET 1, C
+        SET_u3_r8(cpu, 1, &cpu->registers.C);
+        break;
+    case 0xCA: // SET 1, D
+        SET_u3_r8(cpu, 1, &cpu->registers.D);
+        break;
+    case 0xCB: // SET 1, E
+        SET_u3_r8(cpu, 1, &cpu->registers.E);
+        break;
+    case 0xCC: // SET 1, H
+        SET_u3_r8(cpu, 1, &cpu->registers.H);
+        break;
+    case 0xCD: // SET 1, L
+        SET_u3_r8(cpu, 1, &cpu->registers.L);
+        break;
+    case 0xCF: // SET 1, A
+        SET_u3_r8(cpu, 1, &cpu->registers.A);
+        break;
+    case 0xD0: // SET 2, B
+        SET_u3_r8(cpu, 2, &cpu->registers.B);
+        break;
+    case 0xD1: // SET 2, C
+        SET_u3_r8(cpu, 2, &cpu->registers.C);
+        break;
+    case 0xD2: // SET 2, D
+        SET_u3_r8(cpu, 2, &cpu->registers.D);
+        break;
+    case 0xD3: // SET 2, E
+        SET_u3_r8(cpu, 2, &cpu->registers.E);
+        break;
+    case 0xD4: // SET 2, H
+        SET_u3_r8(cpu, 2, &cpu->registers.H);
+        break;
+    case 0xD5: // SET 2, L
+        SET_u3_r8(cpu, 2, &cpu->registers.L);
+        break;
+    case 0xD7: // SET 2, A
+        SET_u3_r8(cpu, 2, &cpu->registers.A);
+        break;
+    case 0xD8: // SET 3, B
+        SET_u3_r8(cpu, 3, &cpu->registers.B);
+        break;
+    case 0xD9: // SET 3, C
+        SET_u3_r8(cpu, 3, &cpu->registers.C);
+        break;
+    case 0xDA: // SET 3, D
+        SET_u3_r8(cpu, 3, &cpu->registers.D);
+        break;
+    case 0xDB: // SET 3, E
+        SET_u3_r8(cpu, 3, &cpu->registers.E);
+        break;
+    case 0xDC: // SET 3, H
+        SET_u3_r8(cpu, 3, &cpu->registers.H);
+        break;
+    case 0xDD: // SET 3, L
+        SET_u3_r8(cpu, 3, &cpu->registers.L);
+        break;
+    case 0xDF: // SET 3, A
+        SET_u3_r8(cpu, 3, &cpu->registers.A);
+        break;
+    case 0xE0: // SET 4, B
+        SET_u3_r8(cpu, 4, &cpu->registers.B);
+        break;
+    case 0xE1: // SET 4, C
+        SET_u3_r8(cpu, 4, &cpu->registers.C);
+        break;
+    case 0xE2: // SET 4, D
+        SET_u3_r8(cpu, 4, &cpu->registers.D);
+        break;
+    case 0xE3: // SET 4, E
+        SET_u3_r8(cpu, 4, &cpu->registers.E);
+        break;
+    case 0xE4: // SET 4, H
+        SET_u3_r8(cpu, 4, &cpu->registers.H);
+        break;
+    case 0xE5: // SET 4, L
+        SET_u3_r8(cpu, 4, &cpu->registers.L);
+        break;
+    case 0xE7: // SET 4, A
+        SET_u3_r8(cpu, 4, &cpu->registers.A);
+        break;
+    case 0xE8: // SET 5, B
+        SET_u3_r8(cpu, 5, &cpu->registers.B);
+        break;
+    case 0xE9: // SET 5, C
+        SET_u3_r8(cpu, 5, &cpu->registers.C);
+        break;
+    case 0xEA: // SET 5, D
+        SET_u3_r8(cpu, 5, &cpu->registers.D);
+        break;
+    case 0xEB: // SET 5, E
+        SET_u3_r8(cpu, 5, &cpu->registers.E);
+        break;
+    case 0xEC: // SET 5, H
+        SET_u3_r8(cpu, 5, &cpu->registers.H);
+        break;
+    case 0xED: // SET 5, L
+        SET_u3_r8(cpu, 5, &cpu->registers.L);
+        break;
+    case 0xEF: // SET 5, A
+        SET_u3_r8(cpu, 5, &cpu->registers.A);
+        break;
+    case 0xF0: // SET 6, B
+        SET_u3_r8(cpu, 6, &cpu->registers.B);
+        break;
+    case 0xF1: // SET 6, C
+        SET_u3_r8(cpu, 6, &cpu->registers.C);
+        break;
+    case 0xF2: // SET 6, D
+        SET_u3_r8(cpu, 6, &cpu->registers.D);
+        break;
+    case 0xF3: // SET 6, E
+        SET_u3_r8(cpu, 6, &cpu->registers.E);
+        break;
+    case 0xF4: // SET 6, H
+        SET_u3_r8(cpu, 6, &cpu->registers.H);
+        break;
+    case 0xF5: // SET 6, L
+        SET_u3_r8(cpu, 6, &cpu->registers.L);
+        break;
+    case 0xF7: // SET 6, A
+        SET_u3_r8(cpu, 6, &cpu->registers.A);
+        break;
+    case 0xF8: // SET 7, B
+        SET_u3_r8(cpu, 7, &cpu->registers.B);
+        break;
+    case 0xF9: // SET 7, C
+        SET_u3_r8(cpu, 7, &cpu->registers.C);
+        break;
+    case 0xFA: // SET 7, D
+        SET_u3_r8(cpu, 7, &cpu->registers.D);
+        break;
+    case 0xFB: // SET 7, E
+        SET_u3_r8(cpu, 7, &cpu->registers.E);
+        break;
+    case 0xFC: // SET 7, H
+        SET_u3_r8(cpu, 7, &cpu->registers.H);
+        break;
+    case 0xFD: // SET 7, L
+        SET_u3_r8(cpu, 7, &cpu->registers.L);
+        break;
+    case 0xFF: // SET 7, A
+        SET_u3_r8(cpu, 7, &cpu->registers.A);
         break;
     default:
         printf("invalid CB opcode: %02x\n", opcode);
@@ -1359,7 +1886,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/09-op r,r.gb";
+    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/10-bit ops.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -1381,7 +1908,7 @@ int main()
 
     print_cpu(&cpu, &memory, file);
     int cnt = 0;
-    while (cnt < 5000000)
+    while (cnt < 7000000)
     {
         cnt++;
 
