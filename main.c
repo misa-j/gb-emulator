@@ -72,12 +72,8 @@ typedef struct
     __uint8_t IME; // IME flag
     bool ime_delay;
     PPU ppu;
-} CPU;
-
-typedef struct
-{
     __uint8_t memory[0xFFFF];
-} Memory;
+} CPU;
 
 __uint8_t get_opcode(__uint8_t *buffer, CPU *cpu)
 {
@@ -89,11 +85,11 @@ __uint8_t get_F(CPU *cpu)
     return (cpu->Z << 7) | (cpu->N << 6) | (cpu->H << 5) | (cpu->C << 4);
 }
 
-void print_cpu(CPU *cpu, Memory *memory, FILE *file)
+void print_cpu(CPU *cpu, FILE *file)
 {
     fprintf(file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
             cpu->registers.A, get_F(cpu), cpu->registers.B, cpu->registers.C, cpu->registers.D, cpu->registers.E, cpu->registers.H,
-            cpu->registers.L, cpu->SP, cpu->PC, memory->memory[cpu->PC], memory->memory[cpu->PC + 1], memory->memory[cpu->PC + 2], memory->memory[cpu->PC + 3]);
+            cpu->registers.L, cpu->SP, cpu->PC, cpu->memory[cpu->PC], cpu->memory[cpu->PC + 1], cpu->memory[cpu->PC + 2], cpu->memory[cpu->PC + 3]);
 }
 
 __int16_t sign_extend(__uint8_t value)
@@ -124,16 +120,16 @@ void store_BC(CPU *cpu, __uint16_t val)
     cpu->registers.C = (val & 0x00FF);
 }
 
-void store_SP(CPU *cpu, Memory *memory)
+void store_SP(CPU *cpu)
 {
-    memory->memory[--cpu->SP] = (cpu->PC & 0xFF00) >> 8;
-    memory->memory[--cpu->SP] = cpu->PC & 0xFF;
+    cpu->memory[--cpu->SP] = (cpu->PC & 0xFF00) >> 8;
+    cpu->memory[--cpu->SP] = cpu->PC & 0xFF;
 }
 
-void store_PC(CPU *cpu, Memory *memory)
+void store_PC(CPU *cpu)
 {
-    memory->memory[--cpu->SP] = (cpu->PC & 0xFF00) >> 8;
-    memory->memory[--cpu->SP] = cpu->PC & 0xFF;
+    cpu->memory[--cpu->SP] = (cpu->PC & 0xFF00) >> 8;
+    cpu->memory[--cpu->SP] = cpu->PC & 0xFF;
 }
 
 __int16_t get_HL(CPU *cpu)
@@ -160,53 +156,53 @@ __int16_t get_DE(CPU *cpu)
     return (D << 8) | E;
 }
 
-__int16_t get_SP(CPU *cpu, Memory *memory)
+__int16_t get_SP(CPU *cpu)
 {
-    __uint8_t v1 = memory->memory[cpu->SP++];
-    __uint16_t v2 = memory->memory[cpu->SP++];
+    __uint8_t v1 = cpu->memory[cpu->SP++];
+    __uint16_t v2 = cpu->memory[cpu->SP++];
 
     return (v2 << 8) | v1;
 }
 
-__int16_t get_a16(CPU *cpu, Memory *memory)
+__int16_t get_a16(CPU *cpu)
 {
-    __uint8_t v1 = memory->memory[cpu->PC++];
-    __uint8_t v2 = memory->memory[cpu->PC++];
+    __uint8_t v1 = cpu->memory[cpu->PC++];
+    __uint8_t v2 = cpu->memory[cpu->PC++];
 
     return (v2 << 8) | v1;
 }
 
-void PUSH_PC(CPU *cpu, Memory *memory)
+void PUSH_PC(CPU *cpu)
 {
-    memory->memory[--cpu->SP] = (cpu->PC & 0xFF00) >> 8;
-    memory->memory[--cpu->SP] = cpu->PC & 0xFF;
+    cpu->memory[--cpu->SP] = (cpu->PC & 0xFF00) >> 8;
+    cpu->memory[--cpu->SP] = cpu->PC & 0xFF;
 }
 
-void PUSH_DE(CPU *cpu, Memory *memory)
+void PUSH_DE(CPU *cpu)
 {
-    memory->memory[--cpu->SP] = cpu->registers.D;
-    memory->memory[--cpu->SP] = cpu->registers.E;
+    cpu->memory[--cpu->SP] = cpu->registers.D;
+    cpu->memory[--cpu->SP] = cpu->registers.E;
     cpu->current_t_cycles += 16;
 }
 
-void PUSH_BC(CPU *cpu, Memory *memory)
+void PUSH_BC(CPU *cpu)
 {
-    memory->memory[--cpu->SP] = cpu->registers.B;
-    memory->memory[--cpu->SP] = cpu->registers.C;
+    cpu->memory[--cpu->SP] = cpu->registers.B;
+    cpu->memory[--cpu->SP] = cpu->registers.C;
     cpu->current_t_cycles += 16;
 }
 
-void PUSH_AF(CPU *cpu, Memory *memory)
+void PUSH_AF(CPU *cpu)
 {
-    memory->memory[--cpu->SP] = cpu->registers.A;
-    memory->memory[--cpu->SP] = get_F(cpu);
+    cpu->memory[--cpu->SP] = cpu->registers.A;
+    cpu->memory[--cpu->SP] = get_F(cpu);
     cpu->current_t_cycles += 16;
 }
 
-void PUSH_HL(CPU *cpu, Memory *memory)
+void PUSH_HL(CPU *cpu)
 {
-    memory->memory[--cpu->SP] = cpu->registers.H;
-    memory->memory[--cpu->SP] = cpu->registers.L;
+    cpu->memory[--cpu->SP] = cpu->registers.H;
+    cpu->memory[--cpu->SP] = cpu->registers.L;
     cpu->current_t_cycles += 16;
 }
 
@@ -225,15 +221,15 @@ void RR_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void RR_HL(CPU *cpu, Memory *memory)
+void RR_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t C = value & 1u;
     value >>= 1;
     value |= (cpu->C << 7);
 
-    memory->memory[HL] = value;
+    cpu->memory[HL] = value;
     cpu->Z = value == 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -255,15 +251,15 @@ void SWAP_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void SWAP_HL(CPU *cpu, Memory *memory)
+void SWAP_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t upper_bits = value & 0xF0;
     __uint8_t lower_bits = value & 0x0F;
 
-    memory->memory[HL] = (upper_bits >> 4) | (lower_bits << 4);
-    cpu->Z = memory->memory[HL] == 0;
+    cpu->memory[HL] = (upper_bits >> 4) | (lower_bits << 4);
+    cpu->Z = cpu->memory[HL] == 0;
     cpu->N = 0;
     cpu->H = 0;
     cpu->C = 0;
@@ -286,16 +282,16 @@ void SRA_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void SRA_HL(CPU *cpu, Memory *memory)
+void SRA_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t C = value & 1u;
     __uint8_t sign = value & (1u << 7);
     value >>= 1;
     value |= sign;
 
-    memory->memory[HL] = value;
+    cpu->memory[HL] = value;
     cpu->Z = value == 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -317,14 +313,14 @@ void SRL_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void SRL_HL(CPU *cpu, Memory *memory)
+void SRL_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t C = value & 1u;
     value >>= 1;
 
-    memory->memory[HL] = value;
+    cpu->memory[HL] = value;
     cpu->Z = value == 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -341,10 +337,10 @@ void BIT_u3_r8(CPU *cpu, __uint8_t u3, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void BIT_u3_HL(CPU *cpu, __uint8_t u3, Memory *memory)
+void BIT_u3_HL(CPU *cpu, __uint8_t u3)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t mask = 1 << u3;
     cpu->Z = (value & mask) ? 0 : 1;
     cpu->N = 0;
@@ -359,13 +355,13 @@ void RES_u3_r8(CPU *cpu, __uint8_t u3, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void RES_u3_HL(CPU *cpu, __uint8_t u3, Memory *memory)
+void RES_u3_HL(CPU *cpu, __uint8_t u3)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t mask = ~(1 << u3);
     value &= mask;
-    memory->memory[HL] = value;
+    cpu->memory[HL] = value;
     cpu->current_t_cycles += 16;
 }
 
@@ -376,11 +372,11 @@ void SET_u3_r8(CPU *cpu, __uint8_t u3, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void SET_u3_HL(CPU *cpu, __uint8_t u3, Memory *memory)
+void SET_u3_HL(CPU *cpu, __uint8_t u3)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL] | (1 << u3);
-    memory->memory[HL] = value;
+    __uint8_t value = cpu->memory[HL] | (1 << u3);
+    cpu->memory[HL] = value;
     cpu->current_t_cycles += 16;
 }
 
@@ -399,15 +395,15 @@ void RLC_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void RLC_HL_r8(CPU *cpu, Memory *memory)
+void RLC_HL_r8(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t C = (value & (1u << 7)) ? 1 : 0;
     value <<= 1;
     value |= C;
 
-    memory->memory[HL] = value;
+    cpu->memory[HL] = value;
     cpu->Z = value == 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -430,15 +426,15 @@ void RL_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void RL_HL(CPU *cpu, Memory *memory)
+void RL_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t C = (value & (1u << 7)) ? 1 : 0;
     value <<= 1;
     value |= cpu->C;
 
-    memory->memory[HL] = value;
+    cpu->memory[HL] = value;
     cpu->Z = value == 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -460,14 +456,14 @@ void SLA_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void SLA_HL(CPU *cpu, Memory *memory)
+void SLA_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t C = (value & (1u << 7)) ? 1 : 0;
     value <<= 1;
 
-    memory->memory[HL] = value;
+    cpu->memory[HL] = value;
     cpu->Z = value == 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -490,15 +486,15 @@ void RRC_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 8;
 }
 
-void RRC_HL(CPU *cpu, Memory *memory)
+void RRC_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t C = value & 1u;
     value >>= 1;
     value |= (C << 7);
 
-    memory->memory[HL] = value;
+    cpu->memory[HL] = value;
     cpu->Z = value == 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -579,7 +575,7 @@ void INC_SP(CPU *cpu)
     cpu->current_t_cycles += 8;
 }
 
-void INC_BC(CPU *cpu, Memory *memory)
+void INC_BC(CPU *cpu)
 {
     __uint16_t BC = get_BC(cpu);
     BC++;
@@ -607,21 +603,21 @@ void INC_r8(CPU *cpu, __uint8_t *r8)
     cpu->current_t_cycles += 4;
 }
 
-void INC_aHL(CPU *cpu, Memory *memory)
+void INC_aHL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
 
     cpu->H = (value & 0x0F) + 1 > 0x0F;
-    memory->memory[HL] = ++value;
+    cpu->memory[HL] = ++value;
     cpu->Z = value == 0;
     cpu->N = 0;
     cpu->current_t_cycles += 12;
 }
 
-void SUB_A_n8(CPU *cpu, Memory *memory)
+void SUB_A_n8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->H = (cpu->registers.A & 0x0F) < (n8 & 0x0F);
     cpu->C = cpu->registers.A < n8;
@@ -631,10 +627,10 @@ void SUB_A_n8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void SUB_A_HL(CPU *cpu, Memory *memory)
+void SUB_A_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     cpu->H = (cpu->registers.A & 0x0F) < (value & 0x0F);
     cpu->C = cpu->registers.A < value;
     cpu->registers.A -= value;
@@ -653,7 +649,7 @@ void SUB_A_r8(CPU *cpu, __uint8_t value)
     cpu->current_t_cycles += 4;
 }
 
-void INC_HL(CPU *cpu, Memory *memory)
+void INC_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
     HL++;
@@ -661,67 +657,67 @@ void INC_HL(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void LD_HLD_A(CPU *cpu, Memory *memory)
+void LD_HLD_A(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    memory->memory[HL] = cpu->registers.A;
+    cpu->memory[HL] = cpu->registers.A;
     HL--;
     store_HL(cpu, HL);
     cpu->current_t_cycles += 8;
 }
 
-void LD_HLI_A(CPU *cpu, Memory *memory)
+void LD_HLI_A(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    memory->memory[HL] = cpu->registers.A;
+    cpu->memory[HL] = cpu->registers.A;
     HL++;
     store_HL(cpu, HL);
     cpu->current_t_cycles += 8;
 }
 
-void LD_A_r16(CPU *cpu, Memory *memory, __uint16_t address)
+void LD_A_r16(CPU *cpu, __uint16_t address)
 {
-    cpu->registers.A = memory->memory[address];
+    cpu->registers.A = cpu->memory[address];
     cpu->current_t_cycles += 8;
 }
 
-void LD_r16_A(CPU *cpu, Memory *memory, __uint16_t address)
+void LD_r16_A(CPU *cpu, __uint16_t address)
 {
-    memory->memory[address] = cpu->registers.A;
+    cpu->memory[address] = cpu->registers.A;
     cpu->current_t_cycles += 8;
 }
 
-void LD_A_HLI(CPU *cpu, Memory *memory)
+void LD_A_HLI(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    cpu->registers.A = memory->memory[HL];
+    cpu->registers.A = cpu->memory[HL];
     HL++;
     store_HL(cpu, HL);
     cpu->current_t_cycles += 8;
 }
 
-void LD_A_HLD(CPU *cpu, Memory *memory)
+void LD_A_HLD(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    cpu->registers.A = memory->memory[HL];
+    cpu->registers.A = cpu->memory[HL];
     HL--;
     store_HL(cpu, HL);
     cpu->current_t_cycles += 8;
 }
 
-void DEC_HL_a16(CPU *cpu, Memory *memory)
+void DEC_HL_a16(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t val = memory->memory[HL];
+    __uint8_t val = cpu->memory[HL];
     cpu->H = (val & 0xF) == 0;
     val -= 1;
     cpu->Z = val == 0;
     cpu->N = 1;
-    memory->memory[HL] = val;
+    cpu->memory[HL] = val;
     cpu->current_t_cycles += 12;
 }
 
-void DEC_HL_r16(CPU *cpu, Memory *memory)
+void DEC_HL_r16(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
     HL--;
@@ -798,10 +794,10 @@ void NOP(CPU *cpu)
     cpu->current_t_cycles += 4;
 }
 
-void LD_r8_HL(CPU *cpu, Memory *memory, __uint8_t *r8)
+void LD_r8_HL(CPU *cpu, __uint8_t *r8)
 {
     __uint16_t HL = get_HL(cpu);
-    *r8 = memory->memory[HL];
+    *r8 = cpu->memory[HL];
     cpu->current_t_cycles += 8;
 }
 
@@ -812,28 +808,28 @@ void LD_SP_HL(CPU *cpu)
     cpu->current_t_cycles += 8;
 }
 
-void LD_SP_n16(CPU *cpu, Memory *memory)
+void LD_SP_n16(CPU *cpu)
 {
-    __uint16_t a16 = get_a16(cpu, memory);
+    __uint16_t a16 = get_a16(cpu);
     cpu->SP = a16;
     cpu->current_t_cycles += 12;
 }
 
-void LD_a16_SP(CPU *cpu, Memory *memory)
+void LD_a16_SP(CPU *cpu)
 {
-    __uint8_t a1 = get_opcode(memory->memory, cpu);
+    __uint8_t a1 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
-    __uint16_t a2 = get_opcode(memory->memory, cpu);
+    __uint16_t a2 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     __uint16_t a16 = a1 | (a2 << 8);
-    memory->memory[a16] = cpu->SP & 0x00FF;
-    memory->memory[a16 + 1] = (cpu->SP & 0xFF00) >> 8;
+    cpu->memory[a16] = cpu->SP & 0x00FF;
+    cpu->memory[a16 + 1] = (cpu->SP & 0xFF00) >> 8;
     cpu->current_t_cycles += 20;
 }
 
-void LD_r8_n8(CPU *cpu, Memory *memory, __uint8_t *r8)
+void LD_r8_n8(CPU *cpu, __uint8_t *r8)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     *r8 = n8;
     cpu->current_t_cycles += 8;
@@ -845,93 +841,93 @@ void LD_r8_r8(CPU *cpu, __uint8_t *r_dest, __uint8_t val)
     cpu->current_t_cycles += 4;
 }
 
-void LD_A_a16(CPU *cpu, Memory *memory)
+void LD_A_a16(CPU *cpu)
 {
-    __uint16_t a16 = get_a16(cpu, memory);
-    cpu->registers.A = memory->memory[a16];
+    __uint16_t a16 = get_a16(cpu);
+    cpu->registers.A = cpu->memory[a16];
     cpu->current_t_cycles += 16;
 }
 
-void LD_a16_A(CPU *cpu, Memory *memory)
+void LD_a16_A(CPU *cpu)
 {
-    __uint16_t a16 = get_a16(cpu, memory);
-    memory->memory[a16] = cpu->registers.A;
+    __uint16_t a16 = get_a16(cpu);
+    cpu->memory[a16] = cpu->registers.A;
     cpu->current_t_cycles += 16;
 }
 
-void LD_a8_A(CPU *cpu, Memory *memory)
+void LD_a8_A(CPU *cpu)
 {
-    __uint8_t a8 = get_opcode(memory->memory, cpu);
+    __uint8_t a8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
-    memory->memory[0xFF00 + a8] = cpu->registers.A;
+    cpu->memory[0xFF00 + a8] = cpu->registers.A;
     cpu->current_t_cycles += 12;
 }
 
-void LD_A_a8(CPU *cpu, Memory *memory)
+void LD_A_a8(CPU *cpu)
 {
-    __uint8_t a8 = get_opcode(memory->memory, cpu);
+    __uint8_t a8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
-    cpu->registers.A = memory->memory[0xFF00 + a8];
+    cpu->registers.A = cpu->memory[0xFF00 + a8];
     cpu->current_t_cycles += 12;
 }
 
-void LD_A_C(CPU *cpu, Memory *memory)
+void LD_A_C(CPU *cpu)
 {
-    __uint8_t value = memory->memory[0xFF00 + cpu->registers.C];
+    __uint8_t value = cpu->memory[0xFF00 + cpu->registers.C];
     cpu->registers.A = value;
     cpu->current_t_cycles += 8;
 }
 
-void LD_C_A(CPU *cpu, Memory *memory)
+void LD_C_A(CPU *cpu)
 {
-    memory->memory[0xFF00 + cpu->registers.C] = cpu->registers.A;
+    cpu->memory[0xFF00 + cpu->registers.C] = cpu->registers.A;
     cpu->current_t_cycles += 8;
 }
 
-void LD_BC_n16(CPU *cpu, Memory *memory)
+void LD_BC_n16(CPU *cpu)
 {
-    __uint8_t v1 = get_opcode(memory->memory, cpu);
+    __uint8_t v1 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
-    __uint8_t v2 = get_opcode(memory->memory, cpu);
+    __uint8_t v2 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->registers.C = v1;
     cpu->registers.B = v2;
     cpu->current_t_cycles += 12;
 }
 
-void LD_DE_n16(CPU *cpu, Memory *memory)
+void LD_DE_n16(CPU *cpu)
 {
-    __uint8_t v1 = get_opcode(memory->memory, cpu);
+    __uint8_t v1 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
-    __uint8_t v2 = get_opcode(memory->memory, cpu);
+    __uint8_t v2 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->registers.E = v1;
     cpu->registers.D = v2;
     cpu->current_t_cycles += 12;
 }
 
-void LD_HL_n16(CPU *cpu, Memory *memory)
+void LD_HL_n16(CPU *cpu)
 {
-    __uint8_t v1 = get_opcode(memory->memory, cpu);
+    __uint8_t v1 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
-    __uint8_t v2 = get_opcode(memory->memory, cpu);
+    __uint8_t v2 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->registers.L = v1;
     cpu->registers.H = v2;
     cpu->current_t_cycles += 12;
 }
 
-void LD_DE_A(CPU *cpu, Memory *memory)
+void LD_DE_A(CPU *cpu)
 {
     __uint16_t DE = get_DE(cpu);
-    memory->memory[DE] = cpu->registers.A;
+    cpu->memory[DE] = cpu->registers.A;
     cpu->current_t_cycles += 8;
 }
 
-void LD_A_DE(CPU *cpu, Memory *memory)
+void LD_A_DE(CPU *cpu)
 {
     __uint16_t DE = get_DE(cpu);
-    cpu->registers.A = memory->memory[DE];
+    cpu->registers.A = cpu->memory[DE];
     cpu->current_t_cycles += 8;
 }
 
@@ -945,9 +941,9 @@ void XOR_A_r8(CPU *cpu, __uint8_t val)
     cpu->current_t_cycles += 4;
 }
 
-void XOR_A_n8(CPU *cpu, Memory *memory)
+void XOR_A_n8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->registers.A ^= n8;
     cpu->Z = cpu->registers.A == 0;
@@ -957,10 +953,10 @@ void XOR_A_n8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void XOR_A_HL(CPU *cpu, Memory *memory)
+void XOR_A_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    cpu->registers.A ^= memory->memory[HL];
+    cpu->registers.A ^= cpu->memory[HL];
     cpu->Z = cpu->registers.A == 0;
     cpu->N = 0;
     cpu->H = 0;
@@ -978,9 +974,9 @@ void OR_A_r8(CPU *cpu, __uint8_t val)
     cpu->current_t_cycles += 4;
 }
 
-void OR_A_n8(CPU *cpu, Memory *memory)
+void OR_A_n8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->registers.A |= n8;
     cpu->Z = cpu->registers.A == 0;
@@ -990,9 +986,9 @@ void OR_A_n8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void AND_A_n8(CPU *cpu, Memory *memory)
+void AND_A_n8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->registers.A &= n8;
     cpu->Z = cpu->registers.A == 0;
@@ -1002,10 +998,10 @@ void AND_A_n8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void AND_A_HL(CPU *cpu, Memory *memory)
+void AND_A_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     cpu->registers.A &= value;
     cpu->Z = cpu->registers.A == 0;
     cpu->N = 0;
@@ -1024,47 +1020,47 @@ void AND_A_r8(CPU *cpu, __uint8_t val)
     cpu->current_t_cycles += 4;
 }
 
-void OR_A_HL(CPU *cpu, Memory *memory)
+void OR_A_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    OR_A_r8(cpu, memory->memory[HL]);
+    OR_A_r8(cpu, cpu->memory[HL]);
     cpu->current_t_cycles += 4;
 }
 
-void LD_HL_r8(CPU *cpu, Memory *memory, __uint8_t r8)
+void LD_HL_r8(CPU *cpu, __uint8_t r8)
 {
     __uint16_t HL = get_HL(cpu);
-    memory->memory[HL] = r8;
+    cpu->memory[HL] = r8;
     cpu->current_t_cycles += 8;
 }
 
-void LD_HL_n8(CPU *cpu, Memory *memory)
+void LD_HL_n8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     __uint16_t HL = get_HL(cpu);
-    memory->memory[HL] = n8;
+    cpu->memory[HL] = n8;
     cpu->current_t_cycles += 12;
 }
 
-void POP_DE(CPU *cpu, Memory *memory)
+void POP_DE(CPU *cpu)
 {
-    cpu->registers.E = memory->memory[cpu->SP++];
-    cpu->registers.D = memory->memory[cpu->SP++];
+    cpu->registers.E = cpu->memory[cpu->SP++];
+    cpu->registers.D = cpu->memory[cpu->SP++];
     cpu->current_t_cycles += 12;
 }
 
-void POP_BC(CPU *cpu, Memory *memory)
+void POP_BC(CPU *cpu)
 {
-    cpu->registers.C = memory->memory[cpu->SP++];
-    cpu->registers.B = memory->memory[cpu->SP++];
+    cpu->registers.C = cpu->memory[cpu->SP++];
+    cpu->registers.B = cpu->memory[cpu->SP++];
     cpu->current_t_cycles += 12;
 }
 
-void POP_AF(CPU *cpu, Memory *memory)
+void POP_AF(CPU *cpu)
 {
-    cpu->registers.F = memory->memory[cpu->SP++];
-    cpu->registers.A = memory->memory[cpu->SP++];
+    cpu->registers.F = cpu->memory[cpu->SP++];
+    cpu->registers.A = cpu->memory[cpu->SP++];
     cpu->Z = (cpu->registers.F & (1u << 7)) ? 1 : 0;
     cpu->N = (cpu->registers.F & (1u << 6)) ? 1 : 0;
     cpu->H = (cpu->registers.F & (1u << 5)) ? 1 : 0;
@@ -1072,10 +1068,10 @@ void POP_AF(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 12;
 }
 
-void POP_HL(CPU *cpu, Memory *memory)
+void POP_HL(CPU *cpu)
 {
-    cpu->registers.L = memory->memory[cpu->SP++];
-    cpu->registers.H = memory->memory[cpu->SP++];
+    cpu->registers.L = cpu->memory[cpu->SP++];
+    cpu->registers.H = cpu->memory[cpu->SP++];
     cpu->current_t_cycles += 12;
 }
 
@@ -1091,18 +1087,18 @@ void ADC_A_r8(CPU *cpu, __uint8_t n8)
     cpu->current_t_cycles += 4;
 }
 
-void ADC_A_n8(CPU *cpu, Memory *memory)
+void ADC_A_n8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     ADC_A_r8(cpu, n8);
     cpu->current_t_cycles += 4;
 }
 
-void ADC_A_HL(CPU *cpu, Memory *memory)
+void ADC_A_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     ADC_A_r8(cpu, value);
     cpu->current_t_cycles += 4;
 }
@@ -1119,18 +1115,18 @@ void SBC_A_r8(CPU *cpu, __uint8_t n8)
     cpu->current_t_cycles += 4;
 }
 
-void SBC_A_n8(CPU *cpu, Memory *memory)
+void SBC_A_n8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     SBC_A_r8(cpu, n8);
     cpu->current_t_cycles += 4;
 }
 
-void SBC_A_HL(CPU *cpu, Memory *memory)
+void SBC_A_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     SBC_A_r8(cpu, value);
     cpu->current_t_cycles += 4;
 }
@@ -1147,9 +1143,9 @@ void ADD_HL_r16(CPU *cpu, __uint16_t r16)
     cpu->current_t_cycles += 8;
 }
 
-void ADD_SP_s8(CPU *cpu, Memory *memory)
+void ADD_SP_s8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     __uint16_t s8 = sign_extend(n8);
     __uint16_t result = cpu->SP + s8;
@@ -1161,9 +1157,9 @@ void ADD_SP_s8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 16;
 }
 
-void ADD_A_n8(CPU *cpu, Memory *memory)
+void ADD_A_n8(CPU *cpu)
 {
-    __uint8_t d8 = get_opcode(memory->memory, cpu);
+    __uint8_t d8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->H = (cpu->registers.A & 0xF) + (d8 & 0xF) > 0xF;
     cpu->C = __builtin_add_overflow(cpu->registers.A, d8, &(cpu->C));
@@ -1173,10 +1169,10 @@ void ADD_A_n8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void ADD_A_HL(CPU *cpu, Memory *memory)
+void ADD_A_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     cpu->H = (cpu->registers.A & 0xF) + (value & 0xF) > 0xF;
     cpu->C = __builtin_add_overflow(cpu->registers.A, value, &(cpu->C));
     cpu->registers.A += value;
@@ -1195,10 +1191,10 @@ void ADD_A_r8(CPU *cpu, __uint8_t value)
     cpu->current_t_cycles += 4;
 }
 
-void LD_HL_SP_s8(CPU *cpu, Memory *memory)
+void LD_HL_SP_s8(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     __uint16_t s8 = sign_extend(n8);
     __uint16_t result = cpu->SP + s8;
@@ -1234,9 +1230,9 @@ void CCF(CPU *cpu)
     cpu->current_t_cycles += 4;
 }
 
-void CP_A_n8(CPU *cpu, Memory *memory)
+void CP_A_n8(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     __uint8_t result = cpu->registers.A - n8;
     cpu->Z = result == 0;
@@ -1246,10 +1242,10 @@ void CP_A_n8(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 8;
 }
 
-void CP_A_HL(CPU *cpu, Memory *memory)
+void CP_A_HL(CPU *cpu)
 {
     __uint16_t HL = get_HL(cpu);
-    __uint8_t value = memory->memory[HL];
+    __uint8_t value = cpu->memory[HL];
     __uint8_t result = cpu->registers.A - value;
     cpu->Z = result == 0;
     cpu->N = 1;
@@ -1268,9 +1264,9 @@ void CP_A_r8(CPU *cpu, __uint8_t r8)
     cpu->current_t_cycles += 4;
 }
 
-void JP_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
+void JP_CC_n16(CPU *cpu, __uint8_t cc)
 {
-    __uint16_t a16 = get_a16(cpu, memory);
+    __uint16_t a16 = get_a16(cpu);
     if (!cc)
     {
         cpu->current_t_cycles += 12;
@@ -1280,9 +1276,9 @@ void JP_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
     cpu->current_t_cycles += 16;
 }
 
-void JP_n16(CPU *cpu, Memory *memory)
+void JP_n16(CPU *cpu)
 {
-    __uint16_t a16 = get_a16(cpu, memory);
+    __uint16_t a16 = get_a16(cpu);
     cpu->PC = a16;
     cpu->current_t_cycles += 16;
 }
@@ -1293,9 +1289,9 @@ void JP_HL(CPU *cpu)
     cpu->current_t_cycles += 4;
 }
 
-void JR_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
+void JR_CC_n16(CPU *cpu, __uint8_t cc)
 {
-    __uint8_t e8 = get_opcode(memory->memory, cpu);
+    __uint8_t e8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     if (!cc)
     {
@@ -1306,43 +1302,43 @@ void JR_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
     cpu->current_t_cycles += 12;
 }
 
-void JR_n16(CPU *cpu, Memory *memory)
+void JR_n16(CPU *cpu)
 {
-    __uint8_t n8 = get_opcode(memory->memory, cpu);
+    __uint8_t n8 = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     cpu->PC += sign_extend(n8);
     cpu->current_t_cycles += 12;
 }
 
-void CALL_CC_n16(CPU *cpu, Memory *memory, __uint8_t cc)
+void CALL_CC_n16(CPU *cpu, __uint8_t cc)
 {
-    __uint16_t a16 = get_a16(cpu, memory);
+    __uint16_t a16 = get_a16(cpu);
     if (!cc)
     {
         cpu->current_t_cycles += 12;
         return;
     }
-    store_SP(cpu, memory);
+    store_SP(cpu);
     cpu->PC = a16;
     cpu->current_t_cycles += 24;
 }
 
-void CALL_n16(CPU *cpu, Memory *memory)
+void CALL_n16(CPU *cpu)
 {
-    __uint16_t a16 = get_a16(cpu, memory);
-    store_PC(cpu, memory);
+    __uint16_t a16 = get_a16(cpu);
+    store_PC(cpu);
     cpu->PC = a16;
     cpu->current_t_cycles += 24;
 }
 
-void RST_vec(CPU *cpu, Memory *memory, __uint8_t address)
+void RST_vec(CPU *cpu, __uint8_t address)
 {
-    store_PC(cpu, memory);
+    store_PC(cpu);
     cpu->PC = address;
     cpu->current_t_cycles += 16;
 }
 
-void RET_CC(CPU *cpu, Memory *memory, __uint8_t cc)
+void RET_CC(CPU *cpu, __uint8_t cc)
 {
     if (!cc)
     {
@@ -1350,22 +1346,22 @@ void RET_CC(CPU *cpu, Memory *memory, __uint8_t cc)
         return;
     }
 
-    cpu->PC = get_SP(cpu, memory);
+    cpu->PC = get_SP(cpu);
     cpu->current_t_cycles + -20;
 }
 
-void RET(CPU *cpu, Memory *memory)
+void RET(CPU *cpu)
 {
-    __uint8_t v1 = memory->memory[cpu->SP++];
-    __uint8_t v2 = memory->memory[cpu->SP++];
+    __uint8_t v1 = cpu->memory[cpu->SP++];
+    __uint8_t v2 = cpu->memory[cpu->SP++];
     __uint16_t a16 = v1 | (v2 << 8);
     cpu->PC = a16;
     cpu->current_t_cycles += 16;
 }
 
-void RETI(CPU *cpu, Memory *memory)
+void RETI(CPU *cpu)
 {
-    __uint16_t a16 = get_SP(cpu, memory);
+    __uint16_t a16 = get_SP(cpu);
     cpu->PC = a16;
     cpu->IME = 1;
     cpu->current_t_cycles += 16;
@@ -1446,12 +1442,12 @@ void display_frame(SDL_Window *window, SDL_Renderer *renderer, __uint8_t *frame)
     SDL_RenderPresent(renderer);
 }
 
-void render_scanline(CPU *cpu, Memory *memory, __uint8_t ly)
+void render_scanline(CPU *cpu, __uint8_t ly)
 {
-    __uint8_t lcdc = memory->memory[0xFF40];
-    __uint8_t scy = memory->memory[0xFF42]; // SCY
-    __uint8_t scx = memory->memory[0xFF43]; // SCX
-    __uint8_t bgp = memory->memory[0xFF47];
+    __uint8_t lcdc = cpu->memory[0xFF40];
+    __uint8_t scy = cpu->memory[0xFF42]; // SCY
+    __uint8_t scx = cpu->memory[0xFF43]; // SCX
+    __uint8_t bgp = cpu->memory[0xFF47];
 
     __uint16_t tilemap = (lcdc & 0x08) ? 0x9C00 : 0x9800;
     __uint16_t tiledata = (lcdc & 0x10) ? 0x8000 : 0x8800;
@@ -1483,7 +1479,7 @@ void render_scanline(CPU *cpu, Memory *memory, __uint8_t ly)
     }
 }
 
-void update_ppu(CPU *cpu, Memory *memory, SDL_Window *window, SDL_Renderer *renderer)
+void update_ppu(CPU *cpu, SDL_Window *window, SDL_Renderer *renderer)
 {
     __uint32_t prev_cycles = cpu->ppu.cycles;
     cpu->ppu.cycles += cpu->current_t_cycles;
@@ -1493,10 +1489,10 @@ void update_ppu(CPU *cpu, Memory *memory, SDL_Window *window, SDL_Renderer *rend
 
     if (prev_line_cycles > new_line_cycles || cpu->ppu.cycles >= 70244)
     {
-        __uint8_t *ly = &memory->memory[0xFF44];
+        __uint8_t *ly = &cpu->memory[0xFF44];
         *ly = (cpu->ppu.cycles / 456) % 154;
 
-        if (!(memory->memory[0xFF40] & 0x80))
+        if (!(cpu->memory[0xFF40] & 0x80))
         {
             *ly = 0;
             return;
@@ -1504,11 +1500,11 @@ void update_ppu(CPU *cpu, Memory *memory, SDL_Window *window, SDL_Renderer *rend
 
         if (*ly < 144)
         {
-            render_scanline(cpu, memory, *ly);
+            render_scanline(cpu, *ly);
         }
         else if (*ly == 144)
         {
-            memory->memory[0xFF0F] |= 0x01; // Set VBlank IF bit
+            cpu->memory[0xFF0F] |= 0x01; // Set VBlank IF bit
         }
 
         // Reset frame at 70224 T-cycles
@@ -1520,10 +1516,10 @@ void update_ppu(CPU *cpu, Memory *memory, SDL_Window *window, SDL_Renderer *rend
     }
 }
 
-void exec_CB(CPU *cpu, Memory *memory)
+void exec_CB(CPU *cpu)
 {
     cpu->current_t_cycles += 4;
-    __uint8_t opcode = get_opcode(memory->memory, cpu);
+    __uint8_t opcode = get_opcode(cpu->memory, cpu);
     cpu->PC++;
     switch (opcode)
     {
@@ -1546,7 +1542,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RLC_r8(cpu, &cpu->registers.L);
         break;
     case 0x06: // RLC [HL]
-        RLC_HL_r8(cpu, memory);
+        RLC_HL_r8(cpu);
         break;
     case 0x07: // RLC A
         RLC_r8(cpu, &cpu->registers.A);
@@ -1570,7 +1566,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RRC_r8(cpu, &cpu->registers.L);
         break;
     case 0x0E: // RRC [HL]
-        RRC_HL(cpu, memory);
+        RRC_HL(cpu);
         break;
     case 0x0F: // RRC A
         RRC_r8(cpu, &cpu->registers.A);
@@ -1594,7 +1590,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RL_r8(cpu, &cpu->registers.L);
         break;
     case 0x16: // RL [HL]
-        RL_HL(cpu, memory);
+        RL_HL(cpu);
         break;
     case 0x17: // RL A
         RL_r8(cpu, &cpu->registers.A);
@@ -1618,7 +1614,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RR_r8(cpu, &cpu->registers.L);
         break;
     case 0x1E: // RR [HL]
-        RR_HL(cpu, memory);
+        RR_HL(cpu);
         break;
     case 0x1F: // RL A
         RR_r8(cpu, &cpu->registers.A);
@@ -1642,7 +1638,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SLA_r8(cpu, &cpu->registers.L);
         break;
     case 0x26: // SLA [HL]
-        SLA_HL(cpu, memory);
+        SLA_HL(cpu);
         break;
     case 0x27: // SLA A
         SLA_r8(cpu, &cpu->registers.A);
@@ -1666,7 +1662,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SRA_r8(cpu, &cpu->registers.L);
         break;
     case 0x2E: // SRA [HL]
-        SRA_HL(cpu, memory);
+        SRA_HL(cpu);
         break;
     case 0x2F: // SRA F
         SRA_r8(cpu, &cpu->registers.A);
@@ -1690,7 +1686,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SWAP_r8(cpu, &cpu->registers.L);
         break;
     case 0x36: // SWAP [HL]
-        SWAP_HL(cpu, memory);
+        SWAP_HL(cpu);
         break;
     case 0x37: // SWAP A
         SWAP_r8(cpu, &cpu->registers.A);
@@ -1714,7 +1710,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SRL_r8(cpu, &cpu->registers.L);
         break;
     case 0x3E: // SRL [HL]
-        SRL_HL(cpu, memory);
+        SRL_HL(cpu);
         break;
     case 0x3F: // SRL A
         SRL_r8(cpu, &cpu->registers.A);
@@ -1738,7 +1734,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         BIT_u3_r8(cpu, 0, &cpu->registers.L);
         break;
     case 0x46: // BIT 0, [HL]
-        BIT_u3_HL(cpu, 0, memory);
+        BIT_u3_HL(cpu, 0);
         break;
     case 0x47: // BIT 0, A
         BIT_u3_r8(cpu, 0, &cpu->registers.A);
@@ -1762,7 +1758,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         BIT_u3_r8(cpu, 1, &cpu->registers.L);
         break;
     case 0x4E: // BIT 1, [HL]
-        BIT_u3_HL(cpu, 1, memory);
+        BIT_u3_HL(cpu, 1);
         break;
     case 0x4F: // BIT 1, A
         BIT_u3_r8(cpu, 1, &cpu->registers.A);
@@ -1786,7 +1782,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         BIT_u3_r8(cpu, 2, &cpu->registers.L);
         break;
     case 0x56: // BIT 2, [HL]
-        BIT_u3_HL(cpu, 2, memory);
+        BIT_u3_HL(cpu, 2);
         break;
     case 0x57: // BIT 2, A
         BIT_u3_r8(cpu, 2, &cpu->registers.A);
@@ -1810,7 +1806,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         BIT_u3_r8(cpu, 3, &cpu->registers.L);
         break;
     case 0x5E: // BIT 3, [HL]
-        BIT_u3_HL(cpu, 3, memory);
+        BIT_u3_HL(cpu, 3);
         break;
     case 0x5F: // BIT 3, A
         BIT_u3_r8(cpu, 3, &cpu->registers.A);
@@ -1834,7 +1830,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         BIT_u3_r8(cpu, 4, &cpu->registers.L);
         break;
     case 0x66: // BIT 4, [HL]
-        BIT_u3_HL(cpu, 4, memory);
+        BIT_u3_HL(cpu, 4);
         break;
     case 0x67: // BIT 4, A
         BIT_u3_r8(cpu, 4, &cpu->registers.A);
@@ -1858,7 +1854,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         BIT_u3_r8(cpu, 5, &cpu->registers.L);
         break;
     case 0x6E: // BIT 5, [HL]
-        BIT_u3_HL(cpu, 5, memory);
+        BIT_u3_HL(cpu, 5);
         break;
     case 0x6F: // BIT 5, A
         BIT_u3_r8(cpu, 5, &cpu->registers.A);
@@ -1882,7 +1878,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         BIT_u3_r8(cpu, 6, &cpu->registers.L);
         break;
     case 0x76: // BIT 6, [HL]
-        BIT_u3_HL(cpu, 6, memory);
+        BIT_u3_HL(cpu, 6);
         break;
     case 0x77: // BIT 6, A
         BIT_u3_r8(cpu, 6, &cpu->registers.A);
@@ -1906,7 +1902,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         BIT_u3_r8(cpu, 7, &cpu->registers.L);
         break;
     case 0x7E: // BIT 7, [HL]
-        BIT_u3_HL(cpu, 7, memory);
+        BIT_u3_HL(cpu, 7);
         break;
     case 0x7F: // BIT 7, A
         BIT_u3_r8(cpu, 7, &cpu->registers.A);
@@ -1930,7 +1926,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RES_u3_r8(cpu, 0, &cpu->registers.L);
         break;
     case 0x86: // RES 0, [HL]
-        RES_u3_HL(cpu, 0, memory);
+        RES_u3_HL(cpu, 0);
         break;
     case 0x87: // RES 0, A
         RES_u3_r8(cpu, 0, &cpu->registers.A);
@@ -1954,7 +1950,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RES_u3_r8(cpu, 1, &cpu->registers.L);
         break;
     case 0x8E: // RES 1, [HL]
-        RES_u3_HL(cpu, 1, memory);
+        RES_u3_HL(cpu, 1);
         break;
     case 0x8F: // RES 1, A
         RES_u3_r8(cpu, 1, &cpu->registers.A);
@@ -1978,7 +1974,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RES_u3_r8(cpu, 2, &cpu->registers.L);
         break;
     case 0x96: // RES 2, [HL]
-        RES_u3_HL(cpu, 2, memory);
+        RES_u3_HL(cpu, 2);
         break;
     case 0x97: // RES 2, A
         RES_u3_r8(cpu, 2, &cpu->registers.A);
@@ -2002,7 +1998,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RES_u3_r8(cpu, 3, &cpu->registers.L);
         break;
     case 0x9E: // RES 3, [HL]
-        RES_u3_HL(cpu, 3, memory);
+        RES_u3_HL(cpu, 3);
         break;
     case 0x9F: // RES 3, A
         RES_u3_r8(cpu, 3, &cpu->registers.A);
@@ -2026,7 +2022,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RES_u3_r8(cpu, 4, &cpu->registers.L);
         break;
     case 0xA6: // RES 4, [HL]
-        RES_u3_HL(cpu, 4, memory);
+        RES_u3_HL(cpu, 4);
         break;
     case 0xA7: // RES 4, A
         RES_u3_r8(cpu, 4, &cpu->registers.A);
@@ -2050,7 +2046,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RES_u3_r8(cpu, 5, &cpu->registers.L);
         break;
     case 0xAE: // RES 5, [HL]
-        RES_u3_HL(cpu, 5, memory);
+        RES_u3_HL(cpu, 5);
         break;
     case 0xAF: // RES 5, A
         RES_u3_r8(cpu, 5, &cpu->registers.A);
@@ -2074,7 +2070,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RES_u3_r8(cpu, 6, &cpu->registers.L);
         break;
     case 0xB6: // RES 6, [HL]
-        RES_u3_HL(cpu, 6, memory);
+        RES_u3_HL(cpu, 6);
         break;
     case 0xB7: // RES 6, A
         RES_u3_r8(cpu, 6, &cpu->registers.A);
@@ -2098,7 +2094,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         RES_u3_r8(cpu, 7, &cpu->registers.L);
         break;
     case 0xBE: // RES 7, [HL]
-        RES_u3_HL(cpu, 7, memory);
+        RES_u3_HL(cpu, 7);
         break;
     case 0xBF: // RES 7, A
         RES_u3_r8(cpu, 7, &cpu->registers.A);
@@ -2122,7 +2118,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SET_u3_r8(cpu, 0, &cpu->registers.L);
         break;
     case 0xC6: // SET 0, [HL]
-        SET_u3_HL(cpu, 0, memory);
+        SET_u3_HL(cpu, 0);
         break;
     case 0xC7: // SET 0, A
         SET_u3_r8(cpu, 0, &cpu->registers.A);
@@ -2146,7 +2142,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SET_u3_r8(cpu, 1, &cpu->registers.L);
         break;
     case 0xCE: // SET 1, [HL]
-        SET_u3_HL(cpu, 1, memory);
+        SET_u3_HL(cpu, 1);
         break;
     case 0xCF: // SET 1, A
         SET_u3_r8(cpu, 1, &cpu->registers.A);
@@ -2170,7 +2166,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SET_u3_r8(cpu, 2, &cpu->registers.L);
         break;
     case 0xD6: // SET 2, [HL]
-        SET_u3_HL(cpu, 2, memory);
+        SET_u3_HL(cpu, 2);
         break;
     case 0xD7: // SET 2, A
         SET_u3_r8(cpu, 2, &cpu->registers.A);
@@ -2194,7 +2190,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SET_u3_r8(cpu, 3, &cpu->registers.L);
         break;
     case 0xDE: // SET 3, [HL]
-        SET_u3_HL(cpu, 3, memory);
+        SET_u3_HL(cpu, 3);
         break;
     case 0xDF: // SET 3, A
         SET_u3_r8(cpu, 3, &cpu->registers.A);
@@ -2218,7 +2214,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SET_u3_r8(cpu, 4, &cpu->registers.L);
         break;
     case 0xE6: // SET 4, [HL]
-        SET_u3_HL(cpu, 4, memory);
+        SET_u3_HL(cpu, 4);
         break;
     case 0xE7: // SET 4, A
         SET_u3_r8(cpu, 4, &cpu->registers.A);
@@ -2242,7 +2238,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SET_u3_r8(cpu, 5, &cpu->registers.L);
         break;
     case 0xEE: // SET 5, [HL]
-        SET_u3_HL(cpu, 5, memory);
+        SET_u3_HL(cpu, 5);
         break;
     case 0xEF: // SET 5, A
         SET_u3_r8(cpu, 5, &cpu->registers.A);
@@ -2266,7 +2262,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SET_u3_r8(cpu, 6, &cpu->registers.L);
         break;
     case 0xF6: // SET 6, [HL]
-        SET_u3_HL(cpu, 6, memory);
+        SET_u3_HL(cpu, 6);
         break;
     case 0xF7: // SET 6, A
         SET_u3_r8(cpu, 6, &cpu->registers.A);
@@ -2290,7 +2286,7 @@ void exec_CB(CPU *cpu, Memory *memory)
         SET_u3_r8(cpu, 7, &cpu->registers.L);
         break;
     case 0xFE: // SET 7, [HL]
-        SET_u3_HL(cpu, 7, memory);
+        SET_u3_HL(cpu, 7);
         break;
     case 0xFF: // SET 7, A
         SET_u3_r8(cpu, 7, &cpu->registers.A);
@@ -2312,47 +2308,47 @@ void update_IME(CPU *cpu, __uint8_t opcode)
     }
 }
 
-int handle_interrupts(CPU *cpu, Memory *memory, FILE *file)
+int handle_interrupts(CPU *cpu, FILE *file)
 {
-    if (!cpu->IME || !(memory->memory[0xff0f] & memory->memory[0xffff]))
+    if (!cpu->IME || !(cpu->memory[0xff0f] & cpu->memory[0xffff]))
         return 0;
     cpu->IME = 0;
-    print_cpu(cpu, memory, file);
-    __uint8_t flags = memory->memory[0xff0f];
-    PUSH_PC(cpu, memory);
+    print_cpu(cpu, file);
+    __uint8_t flags = cpu->memory[0xff0f];
+    PUSH_PC(cpu);
 
     if (flags & (1u))
     {
         printf("vblank handle\n");
-        memory->memory[0xFF0F] &= ~(1u);
+        cpu->memory[0xFF0F] &= ~(1u);
         cpu->PC = VBLANK_ADDR;
         return 1;
     }
     if (flags & (1u << 1))
     {
         printf("lcd handle\n");
-        memory->memory[0xFF0F] &= ~(1u << 1);
+        cpu->memory[0xFF0F] &= ~(1u << 1);
         cpu->PC = LCD_STAT_ADDR;
         return 1;
     }
     if (flags & (1u << 2))
     {
         printf("timer handle\n");
-        memory->memory[0xFF0F] &= ~(1u << 2);
+        cpu->memory[0xFF0F] &= ~(1u << 2);
         cpu->PC = TIMER_ADDR;
         return 1;
     }
     if (flags & (1u << 3))
     {
         printf("serial handle\n");
-        memory->memory[0xFF0F] &= ~(1u << 3);
+        cpu->memory[0xFF0F] &= ~(1u << 3);
         cpu->PC = SERIAL_ADDR;
         return 1;
     }
     if (flags & (1u << 4))
     {
         printf("joypad handle\n");
-        memory->memory[0xFF0F] &= ~(1u << 4);
+        cpu->memory[0xFF0F] &= ~(1u << 4);
         cpu->PC = JOYPAD_ADDR;
         return 1;
     }
@@ -2360,32 +2356,37 @@ int handle_interrupts(CPU *cpu, Memory *memory, FILE *file)
     return 0;
 }
 
-void update_timer(CPU *cpu, Memory *memory)
+void update_timer(CPU *cpu)
 {
     cpu->div_counter += cpu->current_t_cycles;
-    memory->memory[0xFF04] = (cpu->div_counter >> 8);
+    cpu->memory[0xFF04] = (cpu->div_counter >> 8);
 
-    if (memory->memory[0xFF07] & 0x04)
+    if (cpu->memory[0xFF07] & 0x04)
     {
-        __uint16_t freq = (memory->memory[0xFF07] & 0x03) == 0 ? 1024 : (memory->memory[0xFF07] & 0x03) == 1 ? 16
-                                                                    : (memory->memory[0xFF07] & 0x03) == 2   ? 64
-                                                                                                             : 256;
+        __uint16_t freq = (cpu->memory[0xFF07] & 0x03) == 0 ? 1024 : (cpu->memory[0xFF07] & 0x03) == 1 ? 16
+                                                                 : (cpu->memory[0xFF07] & 0x03) == 2   ? 64
+                                                                                                       : 256;
         cpu->tima_cycles += cpu->current_t_cycles;
         if (cpu->tima_cycles >= freq)
         {
-            memory->memory[0xFF05]++;
+            cpu->memory[0xFF05]++;
             cpu->tima_cycles -= freq;
-            if (memory->memory[0xFF05] == 0)
+            if (cpu->memory[0xFF05] == 0)
             {
-                memory->memory[0xFF05] = memory->memory[0xFF06];
-                memory->memory[0xFF0F] |= 0x04;
+                cpu->memory[0xFF05] = cpu->memory[0xFF06];
+                cpu->memory[0xFF0F] |= 0x04;
             }
         }
     }
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    if (argc < 2)
+    {
+        printf("Provide ROM path\n");
+        exit(1);
+    }
     FILE *file = fopen("output.txt", "w");
     SDL_Window *window = SDL_Window_init();
     SDL_Renderer *renderer = SDL_Renderer_init(window);
@@ -2396,10 +2397,9 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/instr_timing/instr_timing.gb";
-    Memory memory = {0};
-    __uint8_t *buffer = read_file(filename, memory.memory);
+    const char *filename = argv[1];
     CPU cpu = {0};
+    __uint8_t *buffer = read_file(filename, cpu.memory);
     cpu.registers.A = 0x01;
     cpu.registers.F = 0xB0;
     cpu.registers.B = 0x00;
@@ -2410,18 +2410,18 @@ int main()
     cpu.registers.L = 0x4D;
     cpu.SP = 0xFFFE;
     cpu.PC = 0x100;
-    memory.memory[0xFF44] = 0x90;
+    cpu.memory[0xFF44] = 0x90;
     cpu.Z = 1;
     cpu.N = 0;
     cpu.H = 1;
     cpu.C = 1;
 
-    cpu.ppu.vram = &memory.memory[0x8000];
-    print_cpu(&cpu, &memory, file);
+    cpu.ppu.vram = &cpu.memory[0x8000];
+    print_cpu(&cpu, file);
     int cnt = 0;
     int quit = 0;
     SDL_Event e;
-    while (/*cnt < 200000 &&*/ !quit)
+    while (cnt < 7500000 && !quit)
     {
         while (SDL_PollEvent(&e) != 0)
         {
@@ -2437,14 +2437,14 @@ int main()
         {
             __uint8_t t_cycles = 4;
             cpu.current_t_cycles += t_cycles;
-            update_timer(&cpu, &memory);
+            update_timer(&cpu);
 
-            if (cpu.IME && (memory.memory[0xFF0F] & memory.memory[0xFFFF]))
+            if (cpu.IME && (cpu.memory[0xFF0F] & cpu.memory[0xFFFF]))
             {
                 cpu.halted = 0;
-                int handled = handle_interrupts(&cpu, &memory, file);
+                int handled = handle_interrupts(&cpu, file);
             }
-            else if (!cpu.IME && memory.memory[0xFF0F])
+            else if (!cpu.IME && cpu.memory[0xFF0F])
             {
                 cpu.halted = 0;
             }
@@ -2460,7 +2460,7 @@ int main()
             NOP(&cpu);
             break;
         case 0xF0: // LDH A, [a8]
-            LD_A_a8(&cpu, &memory);
+            LD_A_a8(&cpu);
             break;
         case 0xF3: // DI
             DI(&cpu);
@@ -2469,37 +2469,37 @@ int main()
             LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.H);
             break;
         case 0xFE: // CP A, n8
-            CP_A_n8(&cpu, &memory);
+            CP_A_n8(&cpu);
             break;
         case 0x38: // JR C, e8
-            JR_CC_n16(&cpu, &memory, cpu.C == 1);
+            JR_CC_n16(&cpu, cpu.C == 1);
             break;
         case 0xC3: // JP a16
-            JP_n16(&cpu, &memory);
+            JP_n16(&cpu);
             break;
         case 0xAF: // XOR A, A
             XOR_A_r8(&cpu, cpu.registers.A);
             break;
         case 0xE0: // LDH [a8], A
-            LD_a8_A(&cpu, &memory);
+            LD_a8_A(&cpu);
             break;
         case 0x20: // JR NZ, e8
-            JR_CC_n16(&cpu, &memory, cpu.Z == 0);
+            JR_CC_n16(&cpu, cpu.Z == 0);
             break;
         case 0x21: // LD HL, n16
-            LD_HL_n16(&cpu, &memory);
+            LD_HL_n16(&cpu);
             break;
         case 0x11: // LD DE, n16
-            LD_DE_n16(&cpu, &memory);
+            LD_DE_n16(&cpu);
             break;
         case 0x01: // LD BC, n16
-            LD_BC_n16(&cpu, &memory);
+            LD_BC_n16(&cpu);
             break;
         case 0x1A: // LD A, [DE]
-            LD_A_DE(&cpu, &memory);
+            LD_A_DE(&cpu);
             break;
         case 0x22: // LD [HL+], A
-            LD_HLI_A(&cpu, &memory);
+            LD_HLI_A(&cpu);
             break;
         case 0x13: // INC DE
             INC_DE(&cpu);
@@ -2517,19 +2517,19 @@ int main()
             AND_A_r8(&cpu, cpu.registers.A);
             break;
         case 0x3E: // LD A, n8
-            LD_r8_n8(&cpu, &memory, &cpu.registers.A);
+            LD_r8_n8(&cpu, &cpu.registers.A);
             break;
         case 0x47:
             LD_r8_r8(&cpu, &cpu.registers.B, cpu.registers.A);
             break;
         case 0x0E: // LD C, n8
-            LD_r8_n8(&cpu, &memory, &cpu.registers.C);
+            LD_r8_n8(&cpu, &cpu.registers.C);
             break;
         case 0x2A: // LD A, [HL+]
-            LD_A_HLI(&cpu, &memory);
+            LD_A_HLI(&cpu);
             break;
         case 0x12: // LD [DE], A
-            LD_DE_A(&cpu, &memory);
+            LD_DE_A(&cpu);
             break;
         case 0x1C: // INC E
             INC_r8(&cpu, &cpu.registers.E);
@@ -2541,13 +2541,13 @@ int main()
             DEC_r8(&cpu, &cpu.registers.C);
             break;
         case 0x31: // LD SP, n16
-            LD_SP_n16(&cpu, &memory);
+            LD_SP_n16(&cpu);
             break;
         case 0xEA: // LD [a16], A
-            LD_a16_A(&cpu, &memory);
+            LD_a16_A(&cpu);
             break;
         case 0xCD: // CALL a16
-            CALL_n16(&cpu, &memory);
+            CALL_n16(&cpu);
             break;
         case 0x7D: // LD A, L
             LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.L);
@@ -2556,52 +2556,52 @@ int main()
             LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.H);
             break;
         case 0xC9: // RET
-            RET(&cpu, &memory);
+            RET(&cpu);
             break;
         case 0xE5: // PUSH HL
-            PUSH_HL(&cpu, &memory);
+            PUSH_HL(&cpu);
             break;
         case 0xE1: // POP HL
-            POP_HL(&cpu, &memory);
+            POP_HL(&cpu);
             break;
         case 0xF5: // PUSH AF
-            PUSH_AF(&cpu, &memory);
+            PUSH_AF(&cpu);
             break;
         case 0x23: // INC HL
-            INC_HL(&cpu, &memory);
+            INC_HL(&cpu);
             break;
         case 0xF1: // POP AF
-            POP_AF(&cpu, &memory);
+            POP_AF(&cpu);
             break;
         case 0x18: // JR e8
-            JR_n16(&cpu, &memory);
+            JR_n16(&cpu);
             break;
         case 0xC5: // PUSH BC
-            PUSH_BC(&cpu, &memory);
+            PUSH_BC(&cpu);
             break;
         case 0x03: // INC BC
-            INC_BC(&cpu, &memory);
+            INC_BC(&cpu);
             break;
         case 0x28: // JR Z, e8
-            JR_CC_n16(&cpu, &memory, cpu.Z == 1);
+            JR_CC_n16(&cpu, cpu.Z == 1);
             break;
         case 0xC1: // POP BC
-            POP_BC(&cpu, &memory);
+            POP_BC(&cpu);
             break;
         case 0xFA: // LD A, [a16]
-            LD_A_a16(&cpu, &memory);
+            LD_A_a16(&cpu);
             break;
         case 0xE6: // AND A, n8
-            AND_A_n8(&cpu, &memory);
+            AND_A_n8(&cpu);
             break;
         case 0xC4: // CALL NZ, a16
-            CALL_CC_n16(&cpu, &memory, cpu.Z == 0);
+            CALL_CC_n16(&cpu, cpu.Z == 0);
             break;
         case 0x06: // LD B, n8
-            LD_r8_n8(&cpu, &memory, &cpu.registers.B);
+            LD_r8_n8(&cpu, &cpu.registers.B);
             break;
         case 0x77: // LD [HL], A
-            LD_HL_r8(&cpu, &memory, cpu.registers.A);
+            LD_HL_r8(&cpu, cpu.registers.A);
             break;
         case 0x2C: // INC L
             INC_r8(&cpu, &cpu.registers.L);
@@ -2616,52 +2616,52 @@ int main()
             XOR_A_r8(&cpu, cpu.registers.C);
             break;
         case 0xC6: // ADD A, n8
-            ADD_A_n8(&cpu, &memory);
+            ADD_A_n8(&cpu);
             break;
         case 0x32: // LD [HL-], A
-            LD_HLD_A(&cpu, &memory);
+            LD_HLD_A(&cpu);
             break;
         case 0xD6: // SUB A, n8
-            SUB_A_n8(&cpu, &memory);
+            SUB_A_n8(&cpu);
             break;
         case 0xB7: // OR A, A
             OR_A_r8(&cpu, cpu.registers.A);
             break;
         case 0xD5: // PUSH DE
-            PUSH_DE(&cpu, &memory);
+            PUSH_DE(&cpu);
             break;
         case 0x46: // LD B, [HL]
-            LD_r8_HL(&cpu, &memory, &cpu.registers.B);
+            LD_r8_HL(&cpu, &cpu.registers.B);
             break;
         case 0x2D: // DEC L
             DEC_r8(&cpu, &cpu.registers.L);
             break;
         case 0x4E: // LD C, [HL]
-            LD_r8_HL(&cpu, &memory, &cpu.registers.C);
+            LD_r8_HL(&cpu, &cpu.registers.C);
             break;
         case 0x56: // LD D, [HL]
-            LD_r8_HL(&cpu, &memory, &cpu.registers.D);
+            LD_r8_HL(&cpu, &cpu.registers.D);
             break;
         case 0xAE: // XOR A, [HL]
-            XOR_A_HL(&cpu, &memory);
+            XOR_A_HL(&cpu);
             break;
         case 0x26: // LD H, n8
-            LD_r8_n8(&cpu, &memory, &cpu.registers.H);
+            LD_r8_n8(&cpu, &cpu.registers.H);
             break;
         case 0xCB: // PREFIX
-            exec_CB(&cpu, &memory);
+            exec_CB(&cpu);
             break;
         case 0x1F: // RRA
             RRA(&cpu, &cpu.registers.A);
             break;
         case 0x30: // JR NC, e8
-            JR_CC_n16(&cpu, &memory, cpu.C == 0);
+            JR_CC_n16(&cpu, cpu.C == 0);
             break;
         case 0x5F: // LD E, A
             LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.A);
             break;
         case 0xEE: // XOR A, n8
-            XOR_A_n8(&cpu, &memory);
+            XOR_A_n8(&cpu);
             break;
         case 0x79: // LD A, C
             LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.C);
@@ -2682,37 +2682,37 @@ int main()
             DEC_r8(&cpu, &(cpu.registers.H));
             break;
         case 0x72: // LD [HL], D
-            LD_HL_r8(&cpu, &memory, cpu.registers.D);
+            LD_HL_r8(&cpu, cpu.registers.D);
             break;
         case 0x71: // LD [HL], C
-            LD_HL_r8(&cpu, &memory, cpu.registers.C);
+            LD_HL_r8(&cpu, cpu.registers.C);
             break;
         case 0x70: // LD [HL], B
-            LD_HL_r8(&cpu, &memory, cpu.registers.B);
+            LD_HL_r8(&cpu, cpu.registers.B);
             break;
         case 0xD1: // POP DE
-            POP_DE(&cpu, &memory);
+            POP_DE(&cpu);
             break;
         case 0xCE: // ADC A, n8
-            ADC_A_n8(&cpu, &memory);
+            ADC_A_n8(&cpu);
             break;
         case 0xD0: // RET NC
-            RET_CC(&cpu, &memory, cpu.C == 0);
+            RET_CC(&cpu, cpu.C == 0);
             break;
         case 0xC8: // RET Z
-            RET_CC(&cpu, &memory, cpu.Z == 1);
+            RET_CC(&cpu, cpu.Z == 1);
             break;
         case 0x3D: // DEC A
             DEC_r8(&cpu, &(cpu.registers.A));
             break;
         case 0xB6: // OR A, [HL]
-            OR_A_HL(&cpu, &memory);
+            OR_A_HL(&cpu);
             break;
         case 0x35: // DEC [HL]
-            DEC_HL_a16(&cpu, &memory);
+            DEC_HL_a16(&cpu);
             break;
         case 0x6E: // LD L, [HL]
-            LD_r8_HL(&cpu, &memory, &cpu.registers.L);
+            LD_r8_HL(&cpu, &cpu.registers.L);
             break;
         case 0x6F: // LD L, A
             LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.A);
@@ -2727,7 +2727,7 @@ int main()
             JP_HL(&cpu);
             break;
         case 0x2E: // LD L, n8
-            LD_r8_n8(&cpu, &memory, &cpu.registers.L);
+            LD_r8_n8(&cpu, &cpu.registers.L);
             break;
         case 0x5D: // LD E, L
             LD_r8_r8(&cpu, &cpu.registers.E, cpu.registers.L);
@@ -2736,16 +2736,16 @@ int main()
             DEC_DE_r16(&cpu);
             break;
         case 0x73: // LD [HL], E
-            LD_HL_r8(&cpu, &memory, cpu.registers.E);
+            LD_HL_r8(&cpu, cpu.registers.E);
             break;
         case 0x5E: // LD E, [HL]
-            LD_r8_HL(&cpu, &memory, &cpu.registers.E);
+            LD_r8_HL(&cpu, &cpu.registers.E);
             break;
         case 0x08: // LD [a16], SP
-            LD_a16_SP(&cpu, &memory);
+            LD_a16_SP(&cpu);
             break;
         case 0x66: // LD H, [HL]
-            LD_r8_HL(&cpu, &memory, &cpu.registers.H);
+            LD_r8_HL(&cpu, &cpu.registers.H);
             break;
         case 0xF9: // LD SP, HL
             LD_SP_HL(&cpu);
@@ -2763,7 +2763,7 @@ int main()
             XOR_A_r8(&cpu, cpu.registers.L);
             break;
         case 0x7E: // LD A, [HL]
-            LD_r8_HL(&cpu, &memory, &cpu.registers.A);
+            LD_r8_HL(&cpu, &cpu.registers.A);
             break;
         case 0x67: // LD H, A
             LD_r8_r8(&cpu, &cpu.registers.H, cpu.registers.A);
@@ -2778,16 +2778,16 @@ int main()
             ADD_HL_r16(&cpu, cpu.SP);
             break;
         case 0xE8: // ADD SP, e8
-            ADD_SP_s8(&cpu, &memory);
+            ADD_SP_s8(&cpu);
             break;
         case 0xF8: // LD HL, SP + e8
-            LD_HL_SP_s8(&cpu, &memory);
+            LD_HL_SP_s8(&cpu);
             break;
         case 0x3C: // INC A
             INC_r8(&cpu, &cpu.registers.A);
             break;
         case 0xC2: // JP NZ, a16
-            JP_CC_n16(&cpu, &memory, cpu.Z == 0);
+            JP_CC_n16(&cpu, cpu.Z == 0);
             break;
         case 0xBB: // CP A, E
             CP_A_r8(&cpu, cpu.registers.E);
@@ -2814,31 +2814,31 @@ int main()
             EI(&cpu);
             break;
         case 0xCA: // JP Z, a16
-            JP_CC_n16(&cpu, &memory, cpu.Z == 1);
+            JP_CC_n16(&cpu, cpu.Z == 1);
             break;
         case 0x76: // HALT
             HALT(&cpu);
             break;
         case 0xD8: // RET C
-            RET_CC(&cpu, &memory, cpu.C == 1);
+            RET_CC(&cpu, cpu.C == 1);
             break;
         case 0x36: // LD [HL], n8
-            LD_HL_n8(&cpu, &memory);
+            LD_HL_n8(&cpu);
             break;
         case 0x16: // LD D, n8
-            LD_r8_n8(&cpu, &memory, &cpu.registers.D);
+            LD_r8_n8(&cpu, &cpu.registers.D);
             break;
         case 0x1E: // LD E, n8
-            LD_r8_n8(&cpu, &memory, &cpu.registers.E);
+            LD_r8_n8(&cpu, &cpu.registers.E);
             break;
         case 0xF6: // OR A, n8
-            OR_A_n8(&cpu, &memory);
+            OR_A_n8(&cpu);
             break;
         case 0xDE: // SBC A, n8
-            SBC_A_n8(&cpu, &memory);
+            SBC_A_n8(&cpu);
             break;
         case 0x2B: // DEC HL
-            DEC_HL_r16(&cpu, &memory);
+            DEC_HL_r16(&cpu);
             break;
         case 0x09: // ADD HL, BC
             ADD_HL_r16(&cpu, get_BC(&cpu));
@@ -2943,64 +2943,64 @@ int main()
             LD_r8_r8(&cpu, &cpu.registers.L, cpu.registers.L);
             break;
         case 0x74: // LD [HL], H
-            LD_HL_r8(&cpu, &memory, cpu.registers.H);
+            LD_HL_r8(&cpu, cpu.registers.H);
             break;
         case 0x75: // LD [HL], L
-            LD_HL_r8(&cpu, &memory, cpu.registers.L);
+            LD_HL_r8(&cpu, cpu.registers.L);
             break;
         case 0x7F: // LD [HL], L
             LD_r8_r8(&cpu, &cpu.registers.A, cpu.registers.A);
             break;
         case 0xD2: // JP NC, a16
-            JP_CC_n16(&cpu, &memory, cpu.C == 0);
+            JP_CC_n16(&cpu, cpu.C == 0);
             break;
         case 0xDA: // JP C, a16
-            JP_CC_n16(&cpu, &memory, cpu.C == 1);
+            JP_CC_n16(&cpu, cpu.C == 1);
             break;
         case 0xCC: // CALL Z, a16
-            CALL_CC_n16(&cpu, &memory, cpu.Z == 1);
+            CALL_CC_n16(&cpu, cpu.Z == 1);
             break;
         case 0xD4: // CALL NC, a16
-            CALL_CC_n16(&cpu, &memory, cpu.C == 0);
+            CALL_CC_n16(&cpu, cpu.C == 0);
             break;
         case 0xDC: // CALL C, a16
-            CALL_CC_n16(&cpu, &memory, cpu.C == 1);
+            CALL_CC_n16(&cpu, cpu.C == 1);
             break;
         case 0xC0: // RET NZ
-            RET_CC(&cpu, &memory, cpu.Z == 0);
+            RET_CC(&cpu, cpu.Z == 0);
             break;
         case 0xD9: // RETI
-            RETI(&cpu, &memory);
+            RETI(&cpu);
             break;
         case 0xC7: // RST $00
-            RST_vec(&cpu, &memory, 0x0);
+            RST_vec(&cpu, 0x0);
             break;
         case 0xCF: // RST $08
-            RST_vec(&cpu, &memory, 0x08);
+            RST_vec(&cpu, 0x08);
             break;
         case 0xD7: // RST $10
-            RST_vec(&cpu, &memory, 0x10);
+            RST_vec(&cpu, 0x10);
             break;
         case 0xDF: // RST $18
-            RST_vec(&cpu, &memory, 0x18);
+            RST_vec(&cpu, 0x18);
             break;
         case 0xE7: // RST $20
-            RST_vec(&cpu, &memory, 0x20);
+            RST_vec(&cpu, 0x20);
             break;
         case 0xEF: // RST $28
-            RST_vec(&cpu, &memory, 0x28);
+            RST_vec(&cpu, 0x28);
             break;
         case 0xF7: // RST $30
-            RST_vec(&cpu, &memory, 0x30);
+            RST_vec(&cpu, 0x30);
             break;
         case 0xFF: // RST $38
-            RST_vec(&cpu, &memory, 0x38);
+            RST_vec(&cpu, 0x38);
             break;
         case 0xF2: // LDH A, [C]
-            LD_A_C(&cpu, &memory);
+            LD_A_C(&cpu);
             break;
         case 0xE2: // LDH [C], A
-            LD_C_A(&cpu, &memory);
+            LD_C_A(&cpu);
             break;
         case 0x2F: // CPL
             CPL(&cpu);
@@ -3159,34 +3159,34 @@ int main()
             RRCA(&cpu);
             break;
         case 0x0A: // LD A, [BC]
-            LD_A_r16(&cpu, &memory, get_BC(&cpu));
+            LD_A_r16(&cpu, get_BC(&cpu));
             break;
         case 0x02: // LD [BC], A
-            LD_r16_A(&cpu, &memory, get_BC(&cpu));
+            LD_r16_A(&cpu, get_BC(&cpu));
             break;
         case 0x3A: // LD A, [HL-]
-            LD_A_HLD(&cpu, &memory);
+            LD_A_HLD(&cpu);
             break;
         case 0xBE: // CP A, [HL]
-            CP_A_HL(&cpu, &memory);
+            CP_A_HL(&cpu);
             break;
         case 0x86: // ADD A, [HL]
-            ADD_A_HL(&cpu, &memory);
+            ADD_A_HL(&cpu);
             break;
         case 0x8E: // ADC A, [HL]
-            ADC_A_HL(&cpu, &memory);
+            ADC_A_HL(&cpu);
             break;
         case 0x96: // SUB A, [HL]
-            SUB_A_HL(&cpu, &memory);
+            SUB_A_HL(&cpu);
             break;
         case 0x9E: // SBC A, [HL]
-            SBC_A_HL(&cpu, &memory);
+            SBC_A_HL(&cpu);
             break;
         case 0xA6: // AND A, [HL]
-            AND_A_HL(&cpu, &memory);
+            AND_A_HL(&cpu);
             break;
         case 0x34: // INC [HL]
-            INC_aHL(&cpu, &memory);
+            INC_aHL(&cpu);
             break;
         default:
             printf("invalid opcode: %02x\n", opcode);
@@ -3194,12 +3194,12 @@ int main()
             exit(1);
             break;
         }
-        update_timer(&cpu, &memory);
-        update_ppu(&cpu, &memory, window, renderer);
+        update_timer(&cpu);
+        // update_ppu(&cpu, window, renderer);
         update_IME(&cpu, opcode);
-        int handled = handle_interrupts(&cpu, &memory, file);
+        int handled = handle_interrupts(&cpu, file);
         if (!handled)
-            print_cpu(&cpu, &memory, file);
+            print_cpu(&cpu, file);
     }
 
     // free(buffer);
