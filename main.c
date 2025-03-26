@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <SDL2/SDL.h>
+#define WINDOW_WIDTH 800
+#define WINDOW_HEIGHT 600
 #define VBLANK_ADDR 0x0040
 #define LCD_STAT_ADDR 0x0048
 #define TIMER_ADDR 0x0050
@@ -48,6 +51,13 @@ typedef struct
 
 typedef struct
 {
+    __uint32_t cycles;
+    __uint8_t *vram;
+    __uint8_t frame[144 * 160];
+} PPU;
+
+typedef struct
+{
     __uint16_t div_counter;
     __uint16_t tima_cycles;
     __uint8_t current_t_cycles;
@@ -61,6 +71,7 @@ typedef struct
     __uint8_t C;   // Carry Flag
     __uint8_t IME; // IME flag
     bool ime_delay;
+    PPU ppu;
 } CPU;
 
 typedef struct
@@ -1360,6 +1371,155 @@ void RETI(CPU *cpu, Memory *memory)
     cpu->current_t_cycles += 16;
 }
 
+SDL_Window *SDL_Window_init()
+{
+    if (SDL_Init(SDL_INIT_VIDEO) < 0)
+    {
+        printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
+        return NULL;
+    }
+
+    SDL_Window *window = SDL_CreateWindow("Number Grid",
+                                          SDL_WINDOWPOS_UNDEFINED,
+                                          SDL_WINDOWPOS_UNDEFINED,
+                                          WINDOW_WIDTH,
+                                          WINDOW_HEIGHT,
+                                          SDL_WINDOW_SHOWN);
+    if (window == NULL)
+    {
+        printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
+        return NULL;
+    }
+
+    return window;
+}
+
+SDL_Renderer *SDL_Renderer_init(SDL_Window *window)
+{
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (renderer == NULL)
+    {
+        printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
+        return NULL;
+    }
+
+    return renderer;
+}
+
+void display_frame(SDL_Window *window, SDL_Renderer *renderer, __uint8_t *frame)
+{
+    int cell_width = WINDOW_WIDTH / 160;
+    int cell_height = WINDOW_HEIGHT / 144;
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+
+    for (int y = 0; y < 144; y++)
+    {
+        for (int x = 0; x < 160; x++)
+        {
+            switch (frame[y * 160 + x])
+            {
+            case 0: // White
+                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+                break;
+            case 1: // Grey
+                SDL_SetRenderDrawColor(renderer, 166, 166, 166, 255);
+                break;
+            case 2: // Dark grey
+                SDL_SetRenderDrawColor(renderer, 77, 77, 77, 255);
+                break;
+            case 3: // Black
+                SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+                break;
+            }
+
+            SDL_Rect cell = {
+                x * cell_width,
+                y * cell_height,
+                cell_width,
+                cell_height};
+            SDL_RenderFillRect(renderer, &cell);
+        }
+    }
+
+    SDL_RenderPresent(renderer);
+}
+
+void render_scanline(CPU *cpu, Memory *memory, __uint8_t ly)
+{
+    __uint8_t lcdc = memory->memory[0xFF40];
+    __uint8_t scy = memory->memory[0xFF42]; // SCY
+    __uint8_t scx = memory->memory[0xFF43]; // SCX
+    __uint8_t bgp = memory->memory[0xFF47];
+
+    __uint16_t tilemap = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+    __uint16_t tiledata = (lcdc & 0x10) ? 0x8000 : 0x8800;
+
+    __uint8_t y = (ly + scy) % 256;
+    __uint8_t tile_row = y / 8;
+    __uint8_t pixel_row = y % 8;
+
+    for (__uint8_t x = 0; x < 160; x++)
+    {
+
+        __uint8_t x_pos = (x + scx) % 256;
+        __uint8_t tile_col = x_pos / 8;
+
+        __uint16_t tile_addr = tilemap + (tile_row * 32) + tile_col;
+        __uint8_t tile_num = cpu->ppu.vram[tile_addr - 0x8000];
+
+        __uint16_t tile_offset = (tiledata == 0x8800 && tile_num < 128) ? tile_num + 256 : tile_num;
+
+        __uint16_t data_addr = tiledata + (tile_offset * 16) + (pixel_row * 2);
+        __uint8_t low = cpu->ppu.vram[data_addr - 0x8000];
+        __uint8_t high = cpu->ppu.vram[data_addr + 1 - 0x8000];
+
+        __uint8_t bit = 7 - (x_pos % 8);
+        __uint8_t color = ((high >> bit) & 1) << 1 | ((low >> bit) & 1);
+
+        __uint8_t shade = (bgp >> (color * 2)) & 0x03;
+        cpu->ppu.frame[ly * 160 + x] = shade;
+    }
+}
+
+void update_ppu(CPU *cpu, Memory *memory, SDL_Window *window, SDL_Renderer *renderer)
+{
+    __uint32_t prev_cycles = cpu->ppu.cycles;
+    cpu->ppu.cycles += cpu->current_t_cycles;
+
+    __uint32_t prev_line_cycles = prev_cycles % 456;
+    __uint32_t new_line_cycles = cpu->ppu.cycles % 456;
+
+    if (prev_line_cycles > new_line_cycles || cpu->ppu.cycles >= 70244)
+    {
+        __uint8_t *ly = &memory->memory[0xFF44];
+        *ly = (cpu->ppu.cycles / 456) % 154;
+
+        if (!(memory->memory[0xFF40] & 0x80))
+        {
+            *ly = 0;
+            return;
+        }
+
+        if (*ly < 144)
+        {
+            render_scanline(cpu, memory, *ly);
+        }
+        else if (*ly == 144)
+        {
+            memory->memory[0xFF0F] |= 0x01; // Set VBlank IF bit
+        }
+
+        // Reset frame at 70224 T-cycles
+        if (cpu->ppu.cycles >= 70224)
+        {
+            cpu->ppu.cycles -= 70224;
+            display_frame(window, renderer, cpu->ppu.frame);
+        }
+    }
+}
+
 void exec_CB(CPU *cpu, Memory *memory)
 {
     cpu->current_t_cycles += 4;
@@ -2227,6 +2387,8 @@ void update_timer(CPU *cpu, Memory *memory)
 int main()
 {
     FILE *file = fopen("output.txt", "w");
+    SDL_Window *window = SDL_Window_init();
+    SDL_Renderer *renderer = SDL_Renderer_init(window);
 
     if (file == NULL)
     {
@@ -2234,7 +2396,7 @@ int main()
         return 1;
     }
 
-    const char *filename = "./gb-test-roms-master/cpu_instrs/individual/11-op a,(hl).gb";
+    const char *filename = "./gb-test-roms-master/instr_timing/instr_timing.gb";
     Memory memory = {0};
     __uint8_t *buffer = read_file(filename, memory.memory);
     CPU cpu = {0};
@@ -2254,10 +2416,21 @@ int main()
     cpu.H = 1;
     cpu.C = 1;
 
+    cpu.ppu.vram = &memory.memory[0x8000];
     print_cpu(&cpu, &memory, file);
     int cnt = 0;
-    while (cnt < 7500000)
+    int quit = 0;
+    SDL_Event e;
+    while (/*cnt < 200000 &&*/ !quit)
     {
+        while (SDL_PollEvent(&e) != 0)
+        {
+            if (e.type == SDL_QUIT)
+            {
+                quit = 1;
+            }
+        }
+
         cnt++;
 
         if (cpu.halted)
@@ -3022,15 +3195,18 @@ int main()
             break;
         }
         update_timer(&cpu, &memory);
-
+        update_ppu(&cpu, &memory, window, renderer);
         update_IME(&cpu, opcode);
         int handled = handle_interrupts(&cpu, &memory, file);
         if (!handled)
             print_cpu(&cpu, &memory, file);
     }
 
-    free(buffer);
+    // free(buffer);
     fclose(file);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 
     return 0;
 }
