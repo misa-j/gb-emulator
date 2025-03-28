@@ -58,7 +58,7 @@ typedef struct
 
 typedef struct
 {
-    __uint16_t div_counter;
+    __uint16_t div_cycles;
     __uint16_t tima_cycles;
     __uint8_t current_t_cycles;
     __uint8_t halted;
@@ -84,7 +84,7 @@ void write_memory(CPU *cpu, uint16_t address, uint8_t value)
 {
     if (address == 0xFF04)
     {
-        cpu->div_counter = 0;
+        cpu->div_cycles = 0;
         cpu->memory[0xFF04] = 0;
     }
     else
@@ -578,6 +578,7 @@ void DEC_r8(CPU *cpu, __uint8_t *r8)
 void DEC_SP(CPU *cpu)
 {
     cpu->SP--;
+    cpu->current_t_cycles += 8;
 }
 
 void INC_SP(CPU *cpu)
@@ -1392,7 +1393,7 @@ void RET_CC(CPU *cpu, __uint8_t cc)
     }
 
     cpu->PC = get_SP(cpu);
-    cpu->current_t_cycles + -20;
+    cpu->current_t_cycles += 20;
 }
 
 void RET(CPU *cpu)
@@ -1421,7 +1422,7 @@ SDL_Window *SDL_Window_init()
         return NULL;
     }
 
-    SDL_Window *window = SDL_CreateWindow("Number Grid",
+    SDL_Window *window = SDL_CreateWindow("GB-emu",
                                           SDL_WINDOWPOS_UNDEFINED,
                                           SDL_WINDOWPOS_UNDEFINED,
                                           WINDOW_WIDTH,
@@ -1564,7 +1565,6 @@ void update_ppu(CPU *cpu, SDL_Window *window, SDL_Renderer *renderer)
 
 void exec_CB(CPU *cpu)
 {
-    cpu->current_t_cycles += 4;
     __uint8_t opcode = read_opcode(cpu);
 
     switch (opcode)
@@ -2404,16 +2404,34 @@ int handle_interrupts(CPU *cpu, FILE *file)
 
 void update_timer(CPU *cpu)
 {
-    cpu->div_counter += cpu->current_t_cycles;
-    write_memory(cpu, 0xFF04, cpu->div_counter >> 8);
+    cpu->div_cycles += cpu->current_t_cycles;
+    cpu->memory[0xFF04] = cpu->div_cycles >> 8;
 
     if (cpu->memory[0xFF07] & 0x04)
     {
-        __uint16_t freq = (cpu->memory[0xFF07] & 0x03) == 0 ? 1024 : (cpu->memory[0xFF07] & 0x03) == 1 ? 16
-                                                                 : (cpu->memory[0xFF07] & 0x03) == 2   ? 64
-                                                                                                       : 256;
+        __uint16_t freq = 0;
+
+        switch (cpu->memory[0xFF07] & 0x03)
+        {
+        case 0:
+            freq = 1024;
+            break;
+        case 1:
+            freq = 16;
+            break;
+        case 2:
+            freq = 64;
+            break;
+        case 3:
+            freq = 256;
+            break;
+        default:
+            printf("Unreachable\n");
+            exit(1);
+        }
+
         cpu->tima_cycles += cpu->current_t_cycles;
-        if (cpu->tima_cycles >= freq)
+        while (cpu->tima_cycles >= freq)
         {
             cpu->memory[0xFF05]++;
             cpu->tima_cycles -= freq;
@@ -3240,11 +3258,13 @@ int main(int argc, char **argv)
             break;
         }
         update_timer(&cpu);
-        // update_ppu(&cpu, window, renderer);
+        update_ppu(&cpu, window, renderer);
         update_IME(&cpu, opcode);
         int handled = handle_interrupts(&cpu, file);
         if (!handled)
             print_cpu(&cpu, file);
+
+        cpu.current_t_cycles = 0;
     }
 
     // free(buffer);
