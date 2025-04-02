@@ -52,6 +52,7 @@ typedef struct
 typedef struct
 {
     __uint32_t cycles;
+    __uint32_t line_cycles;
     __uint8_t *vram;
     __uint8_t frame[144 * 160];
 } PPU;
@@ -75,6 +76,12 @@ typedef struct
     __uint8_t memory[0xFFFF];
 } CPU;
 
+typedef struct
+{
+    __uint8_t x_offset;
+    __uint8_t curr_p;
+} Fetcher;
+
 void update_timer(CPU *cpu, __uint8_t t_cycles);
 
 __uint8_t read_opcode(CPU *cpu)
@@ -96,7 +103,6 @@ void write_memory(CPU *cpu, uint16_t address, uint8_t value)
     if (address == 0xFF02 && value == 0x81)
     {
         printf("%c", cpu->memory[0xFF01]);
-        cpu->memory[0xFF02] = 0;
     }
 }
 
@@ -107,6 +113,7 @@ __uint8_t get_F(CPU *cpu)
 
 void print_cpu(CPU *cpu, FILE *file)
 {
+    return;
     fprintf(file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
             cpu->registers.A, get_F(cpu), cpu->registers.B, cpu->registers.C, cpu->registers.D, cpu->registers.E, cpu->registers.H,
             cpu->registers.L, cpu->SP, cpu->PC, cpu->memory[cpu->PC], cpu->memory[cpu->PC + 1], cpu->memory[cpu->PC + 2], cpu->memory[cpu->PC + 3]);
@@ -1610,77 +1617,161 @@ __uint8_t display_frame(SDL_Window *window, SDL_Renderer *renderer, __uint8_t *f
     SDL_RenderPresent(renderer);
 }
 
-__uint8_t render_scanline(CPU *cpu, __uint8_t ly)
+__uint8_t render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
 {
     __uint8_t lcdc = cpu->memory[0xFF40];
-    __uint8_t scy = cpu->memory[0xFF42]; // SCY
-    __uint8_t scx = cpu->memory[0xFF43]; // SCX
-    __uint8_t bgp = cpu->memory[0xFF47];
+    //__uint8_t *ly = &cpu->memory[0xFF44];
+    __uint8_t obp0 = cpu->memory[0xFF48];
+    __uint8_t obp1 = cpu->memory[0xFF49];
+    __uint8_t scy = cpu->memory[0xFF42];
+    __uint8_t scx = cpu->memory[0xFF43];
+    __uint16_t sprite_addr = 0xFE00;
+    __uint8_t sprite_buffer[40] = {0}; // 10 sprites * 4 bytes
+    __uint16_t tilemap = (lcdc & (1u << 3)) ? 0x9C00 : 0x9800;
+    __uint16_t tiledata = (lcdc & (1u << 4)) ? 0x8000 : 0x9000;
 
-    __uint16_t tilemap = (lcdc & 0x08) ? 0x9C00 : 0x9800;
-    __uint16_t tiledata = (lcdc & 0x10) ? 0x8000 : 0x8800;
+    __uint8_t x_offset = fetcher->x_offset;
+    __uint16_t col_offset = (scx / 8) & 0x1F; // % 32;
+    __uint16_t row_offset = 32 * (((ly + scy) & 0xFF) / 8);
+    __uint8_t tile_n = cpu->memory[tilemap + col_offset + row_offset + x_offset];
+    // printf("x_offset %d\n", x_offset);
+    //__uint16_t tile_addr = 0x84D0 + (2 * ((ly + scy) % 8));
+    __uint16_t tile_addr = tiledata + (tile_n * 16) + (2 * ((ly + scy) % 8));
 
-    __uint8_t y = (ly + scy) % 256;
-    __uint8_t tile_row = y / 8;
-    __uint8_t pixel_row = y % 8;
-
-    for (__uint8_t x = 0; x < 160; x++)
+    __uint8_t low = cpu->memory[tile_addr];
+    // (2 T cycles)
+    __uint8_t high = cpu->memory[tile_addr + 1];
+    __uint8_t mask = 0x80;
+    for (int i = fetcher->curr_p; i < fetcher->curr_p + 8; i++)
     {
+        __uint8_t b1 = (low & mask) ? 1 : 0;
+        __uint8_t b2 = (high & mask) ? 1 : 0;
+        mask >>= 1;
+        // b1 = 1; b2 = 1;
 
-        __uint8_t x_pos = (x + scx) % 256;
-        __uint8_t tile_col = x_pos / 8;
-
-        __uint16_t tile_addr = tilemap + (tile_row * 32) + tile_col;
-        __uint8_t tile_num = cpu->ppu.vram[tile_addr - 0x8000];
-
-        __uint16_t tile_offset = (tiledata == 0x8800 && tile_num < 128) ? tile_num + 256 : tile_num;
-
-        __uint16_t data_addr = tiledata + (tile_offset * 16) + (pixel_row * 2);
-        __uint8_t low = cpu->ppu.vram[data_addr - 0x8000];
-        __uint8_t high = cpu->ppu.vram[data_addr + 1 - 0x8000];
-
-        __uint8_t bit = 7 - (x_pos % 8);
-        __uint8_t color = ((high >> bit) & 1) << 1 | ((low >> bit) & 1);
-
-        __uint8_t shade = (bgp >> (color * 2)) & 0x03;
-        cpu->ppu.frame[ly * 160 + x] = shade;
+        cpu->ppu.frame[ly * 160 + i] = (b1 << 1) | b2;
+        // printf("%d n: %d\n", (b1 << 1) | b2, ly * 160 + i);
     }
+
+    fetcher->x_offset = (fetcher->x_offset + 1) & 0x1F; // % 32;
+    fetcher->curr_p += 8;
 }
 
-void update_ppu(CPU *cpu, __uint8_t t_cycles, SDL_Window *window, SDL_Renderer *renderer)
+// void update_ppu(CPU *cpu, __uint8_t t_cycles, Fetcher *fetcher, SDL_Window *window, SDL_Renderer *renderer)
+// {
+//     __uint32_t prev_cycles = cpu->ppu.cycles;
+//     cpu->ppu.cycles += t_cycles;
+
+//     __uint8_t lcdc = cpu->memory[0xFF40];
+//     __uint8_t ly = cpu->memory[0xFF44];
+//     __uint8_t obp0 = cpu->memory[0xFF48];
+//     __uint8_t obp1 = cpu->memory[0xFF49];
+//     __uint8_t scy = cpu->memory[0xFF42];
+//     __uint8_t scx = cpu->memory[0xFF43];
+//     __uint16_t sprite_addr = 0xFE00;
+//     __uint8_t sprite_buffer[40] = {0}; // 10 sprites * 4 bytes
+//     __uint16_t tilemap = (lcdc & (1u << 3)) ? 0x9C00 : 0x9800;
+//     __uint16_t tiledata = (lcdc & (1u << 4)) ? 0x8000 : 0x9000;
+//     tiledata = 0x8000;
+//     tilemap = 0x9800;
+//     int sprite_idx = 0;
+//     // OAM Scan (Mode 2)
+//     int idx = 0; // start from idenx each cycle
+//     // if(cpu->ppu.cycles <= 80) { // check previous cycle_count
+//     //     for(int i = idx; i < idx + t_cycles / 2; i++) {
+//     //         int start_index = sprite_addr + i * 4;
+//     //         __uint8_t y_pos = cpu->memory[start_index];
+//     //         __uint8_t x_pos = cpu->memory[start_index + 1];
+//     //         __uint8_t tile_n = cpu->memory[start_index + 2];
+//     //         __uint8_t flags = cpu->memory[start_index + 3];
+//     //         int sprite_h = 8; // 8 in Normal Mode, 16 in Tall-Sprite-Mode
+//     //         if(x_pos > 0 && sprite_idx < 10 * 4 && ly + 16 >= y_pos && ly < y_pos + sprite_h) {
+//     //             sprite_buffer[sprite_idx++] = y_pos;
+//     //             sprite_buffer[sprite_idx++] = x_pos;
+//     //             sprite_buffer[sprite_idx++] = tile_n;
+//     //             sprite_buffer[sprite_idx++] = flags;
+//     //         }
+//     //         //printf("%.2x\n", start_index + 3);
+//     //     }
+//     // }
+//     // Background Pixel Fetching (2 T cycles)
+//     __uint8_t x_offset = fetcher->x_offset; // up to 160 or 32??
+//     __uint16_t col_offset = (scx / 8) % 32;
+//     __uint16_t row_offset = 32 * (((ly + scy) & 0xFF) / 8);
+//     __uint8_t tile_n = cpu->memory[tilemap + x_offset + col_offset + row_offset];
+//     //tile_n = 48;
+//     // (2 T cycles)
+//     __uint16_t tile_addr = tiledata + (tile_n * 16) + (2 * ((ly + scy) % 8));
+//     tile_addr = 0x8300;
+//     ly = 1;
+//     for(__uint16_t tile_addr = 0x8A10; tile_addr < 0x8A20; tile_addr += 2) {
+
+//         __uint8_t low = cpu->memory[tile_addr];
+//         // (2 T cycles)
+//         __uint8_t high = cpu->memory[tile_addr + 1];
+//         fetcher->x_offset = (fetcher->x_offset + 1) % 32;
+//         printf("lo: %.2x, hi: %.2x, addr: %.2x\n", low, high, tile_addr);
+//         // if(fetcher->x_offset == 0) {
+//         //     cpu->memory[0xFF44]++;
+//         //     cpu->memory[0xFF44] %= 154;
+//         //     fetcher->curr_p %= 160;
+//         // }
+//         __uint8_t mask = 0x80;
+//         for(int i = fetcher->curr_p; i < fetcher->curr_p + 8; i++) {
+//             __uint8_t b1 = (low & mask) ? 1 : 0;
+//             __uint8_t b2 = (high & mask) ? 1 : 0;
+//             mask >>= 1;
+//             //b1 = 1; b2 = 1;
+
+//             cpu->ppu.frame[ly * 160 + i] = (b1 << 1) | b2;
+//             printf("%d n: %d\n", (b1 << 1) | b2, ly * 160 + i);
+//         }
+//         ly += 1;
+//     }
+//     fetcher->curr_p += 8;
+//     // printf("%d\n", fetcher->curr_p);
+//     // printf("%d\n", cpu->memory[0xFF44]);
+//     if(cpu->ppu.cycles >= 70224) {
+//         cpu->ppu.cycles -= 70224;
+//         display_frame(window, renderer, cpu->ppu.frame);
+//     }
+
+// }
+
+void update_ppu(CPU *cpu, __uint8_t t_cycles, Fetcher *fetcher, SDL_Window *window, SDL_Renderer *renderer)
 {
     __uint32_t prev_cycles = cpu->ppu.cycles;
     cpu->ppu.cycles += t_cycles;
+    cpu->ppu.line_cycles += t_cycles;
 
-    __uint32_t prev_line_cycles = prev_cycles % 456;
-    __uint32_t new_line_cycles = cpu->ppu.cycles % 456;
+    __uint8_t lcdc = cpu->memory[0xFF40];
+    __uint8_t *ly = &cpu->memory[0xFF44];
+    __uint8_t obp0 = cpu->memory[0xFF48];
+    __uint8_t obp1 = cpu->memory[0xFF49];
+    __uint8_t scy = cpu->memory[0xFF42];
+    __uint8_t scx = cpu->memory[0xFF43];
+    __uint16_t sprite_addr = 0xFE00;
+    __uint8_t sprite_buffer[40] = {0}; // 10 sprites * 4 bytes
+    __uint16_t tilemap = (lcdc & (1u << 3)) ? 0x9C00 : 0x9800;
+    __uint16_t tiledata = (lcdc & (1u << 4)) ? 0x8000 : 0x9000;
 
-    if (prev_line_cycles > new_line_cycles || cpu->ppu.cycles >= 70244)
+    if (cpu->ppu.line_cycles <= 456)
     {
-        __uint8_t *ly = &cpu->memory[0xFF44];
-        *ly = (cpu->ppu.cycles / 456) % 154;
-
-        if (!(cpu->memory[0xFF40] & 0x80))
-        {
-            *ly = 0;
-            return;
-        }
-
-        if (*ly < 144)
-        {
-            render_scanline(cpu, *ly);
-        }
-        else if (*ly == 144)
-        {
-            write_memory(cpu, 0xFF0F, cpu->memory[0xFF0F] | 0x01); // Set VBlank IF bit
-        }
-
-        // Reset frame at 70224 T-cycles
-        if (cpu->ppu.cycles >= 70224)
-        {
-            cpu->ppu.cycles -= 70224;
-            display_frame(window, renderer, cpu->ppu.frame);
-        }
+        render_scanline(cpu, fetcher, *ly);
+    }
+    else
+    {
+        cpu->ppu.line_cycles -= 456;
+        *ly = *ly + 1;
+        fetcher->curr_p = 0;
+        fetcher->x_offset = 0;
+        // printf("ly: %d line cycles: %d\n", *ly, cpu->ppu.line_cycles);
+    }
+    if (cpu->ppu.cycles >= 70224)
+    {
+        cpu->ppu.cycles -= 70224;
+        *ly = 0;
+        display_frame(window, renderer, cpu->ppu.frame);
     }
 }
 
@@ -2482,16 +2573,19 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
 {
     if (!cpu->IME || !(cpu->memory[0xff0f] & cpu->memory[0xffff]))
         return 0;
+
     cpu->IME = 0;
     print_cpu(cpu, file);
-    __uint8_t flags = cpu->memory[0xff0f];
+    update_timer(cpu, 8);
+    __uint8_t flags = cpu->memory[0xff0f] & cpu->memory[0xffff];
     PUSH_PC(cpu);
-    // update_timer(cpu, 12);
+
     if (flags & (1u))
     {
         printf("vblank handle\n");
         cpu->memory[0xFF0F] &= ~(1u);
         cpu->PC = VBLANK_ADDR;
+        update_timer(cpu, 4);
         return 1;
     }
     if (flags & (1u << 1))
@@ -2499,6 +2593,7 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
         printf("lcd handle\n");
         cpu->memory[0xFF0F] &= ~(1u << 1);
         cpu->PC = LCD_STAT_ADDR;
+        update_timer(cpu, 4);
         return 1;
     }
     if (flags & (1u << 2))
@@ -2506,6 +2601,7 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
         printf("timer handle\n");
         cpu->memory[0xFF0F] &= ~(1u << 2);
         cpu->PC = TIMER_ADDR;
+        update_timer(cpu, 4);
         return 1;
     }
     if (flags & (1u << 3))
@@ -2513,6 +2609,7 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
         printf("serial handle\n");
         cpu->memory[0xFF0F] &= ~(1u << 3);
         cpu->PC = SERIAL_ADDR;
+        update_timer(cpu, 4);
         return 1;
     }
     if (flags & (1u << 4))
@@ -2520,6 +2617,7 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
         printf("joypad handle\n");
         cpu->memory[0xFF0F] &= ~(1u << 4);
         cpu->PC = JOYPAD_ADDR;
+        update_timer(cpu, 4);
         return 1;
     }
 
@@ -2599,7 +2697,7 @@ int main(int argc, char **argv)
     cpu.registers.L = 0x4D;
     cpu.SP = 0xFFFE;
     cpu.PC = 0x100;
-    write_memory(&cpu, 0xFF44, 0x90);
+    // write_memory(&cpu, 0xFF44, 0x90);
     cpu.Z = 1;
     cpu.N = 0;
     cpu.H = 1;
@@ -2610,6 +2708,9 @@ int main(int argc, char **argv)
     int cnt = 0;
     int quit = 0;
     SDL_Event e;
+
+    Fetcher fetcher = {0};
+
     while (cnt < 7500000 && !quit)
     {
         while (SDL_PollEvent(&e) != 0)
@@ -2627,7 +2728,7 @@ int main(int argc, char **argv)
             __uint8_t t_cycles = 4;
             // cpu.current_t_cycles += t_cycles;
             update_timer(&cpu, t_cycles);
-
+            printf("halted\n");
             if (cpu.IME && (cpu.memory[0xFF0F] & cpu.memory[0xFFFF]))
             {
                 cpu.halted = 0;
@@ -3381,18 +3482,16 @@ int main(int argc, char **argv)
         default:
             printf("invalid opcode: %02x\n", opcode);
             printf("PC: %02x\n", cpu.PC);
-            exit(1);
+            // exit(1);
             break;
         }
-        // cpu.current_t_cycles = t_cycles;
-        // update_timer(&cpu, t_cycles);
-        update_ppu(&cpu, t_cycles, window, renderer);
+
         update_IME(&cpu, opcode);
         __uint8_t handled = handle_interrupts(&cpu, file);
-        if (!handled)
-            print_cpu(&cpu, file);
+        // if (!handled)
+        //     print_cpu(&cpu, file);
 
-        // cpu.current_t_cycles = 0;
+        update_ppu(&cpu, t_cycles, &fetcher, window, renderer);
     }
 
     // free(buffer);
