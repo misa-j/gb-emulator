@@ -3,15 +3,24 @@
 #include <stdbool.h>
 #include <SDL2/SDL.h>
 #define WINDOW_WIDTH 800
-#define WINDOW_HEIGHT 600
+#define WINDOW_HEIGHT 720
 #define VBLANK_ADDR 0x0040
 #define LCD_STAT_ADDR 0x0048
 #define TIMER_ADDR 0x0050
 #define SERIAL_ADDR 0x0058
 #define JOYPAD_ADDR 0x0060
+#define SELECT_DPAD 0x10
+#define SELECT_BUTTONS 0x20
+#define SELECT_NONE 0x30
+#define JOYPAD_ADDR 0x0060
 #define IF 0xFF0F
 #define IE 0xFFFF
+#define OAM_ADDR 0xFE00
 #define STAT 0xFF41
+#define IO_JOYPAD 0xFF00
+#define LYC 0xFF45
+#define LY 0xFF44
+#define LCDC 0xFF40
 
 __uint8_t *read_file(const char *filename, __uint8_t *buffer)
 {
@@ -42,6 +51,35 @@ __uint8_t *read_file(const char *filename, __uint8_t *buffer)
 
 typedef struct
 {
+    __uint8_t color_number;
+    __uint8_t palette;
+    __uint8_t background_priority;
+    __uint8_t x;
+    __uint8_t y;
+} Pixel;
+
+typedef struct
+{
+    __uint8_t x;
+    __uint8_t y;
+    __uint8_t tile_number;
+    __uint8_t flags;
+} SpriteAttributes;
+
+typedef struct
+{
+    Pixel queue[8];
+    __uint8_t size;
+} PixelQueue;
+
+typedef struct
+{
+    SpriteAttributes buffer[10];
+    __uint8_t size;
+} SpriteBuffer;
+
+typedef struct
+{
     __uint8_t A;
     __uint8_t F;
     __uint8_t B;
@@ -58,6 +96,9 @@ typedef struct
     __uint32_t line_cycles;
     __uint8_t frame[144 * 160];
     __uint8_t prev_ly;
+    PixelQueue bg_queue;
+    PixelQueue sprite_queue;
+    SpriteBuffer sprite_buffer;
 } PPU;
 
 typedef struct
@@ -89,10 +130,117 @@ typedef struct
     SDL_Renderer *renderer;
     Fetcher *fetcher;
     bool vblank;
+    bool hblank;
+    bool oam_scan;
 } CPU;
 
 void update_timer(CPU *cpu, __uint8_t t_cycles);
 void update_ppu(CPU *cpu, __uint8_t t_cycles);
+
+void PixelQueue_push(PixelQueue *queue, Pixel pixel)
+{
+    if (queue->size >= 8)
+    {
+        printf("Max PixelQueue exceeded\n");
+        exit(1);
+        return;
+    }
+    Pixel *current_pixel = &queue->queue[queue->size++];
+    current_pixel->background_priority = pixel.background_priority;
+    current_pixel->color_number = pixel.color_number;
+    current_pixel->palette = pixel.palette;
+    current_pixel->x = pixel.x;
+    current_pixel->y = pixel.y;
+}
+
+Pixel *PixelQueue_pop(PixelQueue *queue)
+{
+    if (queue->size == 0)
+    {
+        printf("Cannot pop empty queue\n");
+        exit(1);
+        return NULL;
+    }
+
+    return &queue->queue[--queue->size];
+}
+
+void PixelQueue_clear(PixelQueue *queue)
+{
+    queue->size = 0;
+}
+
+bool PixelQueue_size(PixelQueue *queue)
+{
+    return queue->size;
+}
+
+// Sprite buffer
+
+void SpriteBuffer_push(SpriteBuffer *buffer, SpriteAttributes sprite)
+{
+    if (buffer->size >= 10)
+    {
+        printf("Max SpriteBuffer exceeded\n");
+        exit(1);
+        return;
+    }
+    SpriteAttributes *current_sprite = &buffer->buffer[buffer->size++];
+    current_sprite->x = sprite.x;
+    current_sprite->y = sprite.y;
+    current_sprite->tile_number = sprite.tile_number;
+    current_sprite->flags = sprite.flags;
+}
+
+SpriteAttributes *SpriteBuffer_pop(SpriteBuffer *buffer)
+{
+    if (buffer->size == 0)
+    {
+        printf("Cannot pop empty buffer\n");
+        exit(1);
+        return NULL;
+    }
+
+    return &buffer->buffer[--buffer->size];
+}
+
+void SpriteBuffer_clear(SpriteBuffer *buffer)
+{
+    buffer->size = 0;
+}
+
+bool SpriteBuffer_size(SpriteBuffer *buffer)
+{
+    return buffer->size;
+}
+
+bool SpriteBufferempty(SpriteBuffer *buffer)
+{
+    return buffer->size == 0;
+}
+
+void oam_scan(CPU *cpu)
+{
+    SpriteBuffer *sprite_buffer = &cpu->ppu.sprite_buffer;
+    __uint8_t ly = cpu->memory[LY] + 16;
+    for (__uint16_t addr = OAM_ADDR; addr < OAM_ADDR + 40 * 4; addr += 4)
+    {
+        __uint8_t y = cpu->memory[addr];
+        __uint8_t x = cpu->memory[addr + 1];
+        __uint8_t tile_number = cpu->memory[addr + 2];
+        __uint8_t flags = cpu->memory[addr + 3];
+        __uint8_t sprite_height = 8; // 8 in Normal Mode, 16 in Tall-Sprite-Mode
+        if (SpriteBuffer_size(sprite_buffer) < 10 && x > 10 && ly >= y && ly < (y + sprite_height))
+        {
+            SpriteAttributes sa = {0};
+            sa.y = y;
+            sa.x = x;
+            sa.tile_number = tile_number;
+            sa.flags = flags;
+            SpriteBuffer_push(sprite_buffer, sa);
+        }
+    }
+}
 
 __uint8_t read_opcode(CPU *cpu)
 {
@@ -101,7 +249,7 @@ __uint8_t read_opcode(CPU *cpu)
 
 void write_memory(CPU *cpu, uint16_t address, uint8_t value)
 {
-    if (address == 0xFF00)
+    if (address == IO_JOYPAD)
     {
         cpu->memory[address] = (value | 0x0F);
         // printf("0xFF00 %.2x value %.2x\n", cpu->memory[address], value);
@@ -1652,9 +1800,9 @@ __uint8_t display_frame(SDL_Window *window, SDL_Renderer *renderer, __uint8_t *f
     SDL_RenderPresent(renderer);
 }
 
-__uint8_t render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
+void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
 {
-    __uint8_t lcdc = cpu->memory[0xFF40];
+    __uint8_t lcdc = cpu->memory[LCDC];
     __uint8_t obp0 = cpu->memory[0xFF48];
     __uint8_t obp1 = cpu->memory[0xFF49];
     __uint8_t scy = cpu->memory[0xFF42];
@@ -1663,55 +1811,88 @@ __uint8_t render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
     __uint8_t sprite_buffer[40] = {0}; // 10 sprites * 4 bytes
     __uint16_t tilemap = (lcdc & (1u << 3)) ? 0x9C00 : 0x9800;
     __uint16_t tiledata = (lcdc & (1u << 4)) ? 0x8000 : 0x9000;
+    __uint16_t bw_enable = (lcdc & 1u);
 
+    if (!bw_enable)
+    {
+        return;
+    };
+
+    // (2 T cycles)
     __uint8_t x_offset = fetcher->x_offset;
     __uint16_t col_offset = (scx / 8) % 32;
     __uint16_t row_offset = 32 * (((ly + scy) & 0xFF) / 8);
+    __uint16_t tile_n_addr = tilemap + col_offset + row_offset + x_offset;
+    __uint8_t tile_n = cpu->memory[tile_n_addr];
 
-    __uint8_t tile_n = cpu->memory[tilemap + col_offset + row_offset + x_offset];
-
+    // (2 T cycles)
     __uint16_t tile_offset = (tiledata == 0x9000) ? (int8_t)(tile_n) : tile_n;
     __uint16_t tile_addr = tiledata + (tile_offset * 16) + (2 * ((ly + scy) % 8));
-    // printf("tile_addr %.2x\n", tile_addr);
     __uint8_t low = cpu->memory[tile_addr];
+
     // (2 T cycles)
     __uint8_t high = cpu->memory[tile_addr + 1];
+
+    // Push pixels
+    if (PixelQueue_size(&cpu->ppu.bg_queue))
+    {
+
+        while (PixelQueue_size(&cpu->ppu.bg_queue))
+        {
+            Pixel *pixel = PixelQueue_pop(&cpu->ppu.bg_queue);
+            if ((pixel->x * 160 + pixel->y) < 144 * 160)
+            {
+                cpu->ppu.frame[pixel->x * 160 + pixel->y] = pixel->color_number;
+                // printf("color_number: %d, x: %d, y: %d\n", pixel->color_number, pixel->x, pixel->y);
+            }
+            else
+            {
+                // TODO: fix this
+                printf("out of bounds %d, max: %d\n", (pixel->x * 160 + pixel->y), 144 * 160);
+            }
+        }
+        return;
+    }
     __uint8_t mask = 0x80;
-    for (int i = fetcher->curr_p; i < fetcher->curr_p + 8; i++)
+    for (int i = 0; i < 8; i++)
     {
         __uint8_t b1 = (low & mask) ? 1 : 0;
         __uint8_t b2 = (high & mask) ? 1 : 0;
         mask >>= 1;
-        // b1 = 1; b2 = 1;
-
-        if ((ly * 160 + i) < 144 * 160)
-            cpu->ppu.frame[ly * 160 + i] = (b2 << 1) | b1;
-        else
+        __uint8_t color_number = (b2 << 1) | b1;
+        Pixel pixel = {0};
+        pixel.color_number = color_number;
+        pixel.background_priority = 0;
+        pixel.palette = obp0;
+        pixel.x = ly;
+        pixel.y = fetcher->curr_p;
+        PixelQueue_push(&cpu->ppu.bg_queue, pixel);
+        fetcher->curr_p++;
+        if (pixel.color_number == 7)
         {
-            // TODO: fix this
-            printf("out of bounds %d, max: %d\n", ly * 160 + i, 144 * 160);
+            printf("color num 7\n");
+            exit(1);
         }
-        // printf("%d n: %d\n", (b1 << 1) | b2, ly * 160 + i);
+        // printf("added color_number: %d, x: %d, y: %d, cycles: %d\n", pixel.color_number, pixel.x, pixel.y, cpu->ppu.line_cycles);
     }
 
     fetcher->x_offset = (fetcher->x_offset + 1) % 32;
-    fetcher->curr_p += 8;
 }
 
 __uint8_t get_ppu_mode(CPU *cpu)
 {
     // Calculate current scanline (0-153)
-    __uint8_t LY = cpu->memory[0xFF44]; // LY
+    //__uint8_t LY = cpu->memory[LY]; // LY
 
-    if (LY >= 144)   // V-Blank (lines 144-153)
-        return 0b01; // 01
+    if (cpu->memory[LY] >= 144) // V-Blank (lines 144-153)
+        return 0b01;            // 01
     else
     {                                                  // Visible lines (0-143)
         __uint16_t line_cycles = cpu->ppu.line_cycles; // Cycles within current scanline
 
         if (line_cycles < 80)       // OAM Search (first 80 cycles)
             return 0b10;            // 10
-        else if (line_cycles < 252) // Pixel Transfer (approx 80-252, varies by sprites)
+        else if (line_cycles < 369) // Pixel Transfer (approx 80-252, varies by sprites)
             return 0b11;            // 11
         else                        // H-Blank (remaining cycles up to 456)
             return 0b00;            // 00
@@ -1726,30 +1907,32 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
     cpu->ppu.cycles += t_cycles;
     cpu->ppu.line_cycles += t_cycles;
 
-    __uint8_t *ly = &cpu->memory[0xFF44];
-
+    __uint8_t *ly = &cpu->memory[LY];
+    bool new_line = *ly != cpu->ppu.prev_ly;
+    cpu->ppu.prev_ly = *ly;
     cpu->memory[STAT] = (cpu->memory[STAT] & 0xFC) | mode;
-
-    if (*ly == cpu->memory[0xFF45])
+    // if(new_line) printf("new line: %d, line n: %d\n", cpu->memory[LYC], *ly);
+    if (*ly == cpu->memory[LYC])
     {
         cpu->memory[STAT] |= (1u << 2);
-        if (cpu->memory[STAT] & (1u << 6) && (*ly != cpu->ppu.prev_ly)) // STAT.6 - LYC=LY STAT Interrupt Enable
+        if ((cpu->memory[STAT] & (1u << 6)) && new_line) // STAT.6 - LYC=LY STAT Interrupt Enable
         {
             cpu->memory[IF] |= (1u << 1);
+            // printf("(LYC=LY) %d\n", *ly);
         }
     }
     else
     {
         cpu->memory[STAT] &= ~(1u << 2);
     }
-    cpu->ppu.prev_ly = *ly;
 
-    if (mode == 2)
+    if (mode == 2 && !cpu->oam_scan)
     {
+        cpu->oam_scan = 1;
         if (cpu->memory[STAT] & (1u << 5)) // STAT.5	Mode 2 (OAM Scan)
         {
             cpu->memory[IF] |= (1u << 1);
-            printf("(OAM Scan)\n");
+            // printf("(OAM Scan)\n");
         }
     }
     if (mode == 1 && !cpu->vblank)
@@ -1760,21 +1943,22 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
         if (cpu->memory[STAT] & (1u << 4)) // STAT.4	Mode 1 (VBlank)
         {
             cpu->memory[IF] |= (1u << 1);
-            printf("(VBlank)\n");
+            // printf("(VBlank)\n");
         }
     }
-    if (mode == 0)
+    if (mode == 0 && !cpu->hblank)
     {
+        cpu->hblank = 1;
         if (cpu->memory[STAT] & (1u << 3)) // STAT.3	Mode 0 (HBlank)
         {
             cpu->memory[IF] |= (1u << 1);
-            printf("(HBlank)\n");
+            // printf("(HBlank)\n");
         }
     }
 
     if (cpu->ppu.line_cycles < 456)
     {
-        if (fetcher->curr_p < 160 && *ly < 144)
+        if (mode == 3 && fetcher->curr_p <= 160 && *ly < 144)
         {
             render_scanline(cpu, fetcher, *ly);
         }
@@ -1786,14 +1970,22 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
         fetcher->curr_p = 0;
         fetcher->x_offset = 0;
         cpu->vblank = 0;
+        cpu->hblank = 0;
+        cpu->oam_scan = 0;
+        PixelQueue_clear(&cpu->ppu.bg_queue);
     }
     if (cpu->ppu.cycles >= 70224)
     {
+        // printf("one frame line_cycles: %d\n", cpu->ppu.line_cycles);
         cpu->ppu.cycles -= 70224;
         cpu->ppu.line_cycles = 0;
+        fetcher->curr_p = 0;
         cpu->vblank = 0;
+        cpu->hblank = 0;
+        cpu->oam_scan = 0;
         *ly = 0;
         display_frame(cpu->window, cpu->renderer, cpu->ppu.frame);
+        PixelQueue_clear(&cpu->ppu.bg_queue);
         // cpu->memory[0xFF0F] &= ~(1u);
     }
 }
@@ -2605,7 +2797,7 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
 
     if (flags & (1u))
     {
-        printf("vblank handle\n");
+        // printf("vblank handle\n");
         cpu->memory[0xFF0F] &= ~(1u);
         cpu->PC = VBLANK_ADDR;
         update_timer(cpu, 4);
@@ -2613,7 +2805,7 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
     }
     if (flags & (1u << 1))
     {
-        printf("lcd handle\n");
+        // printf("lcd handle\n");
         cpu->memory[0xFF0F] &= ~(1u << 1);
         cpu->PC = LCD_STAT_ADDR;
         update_timer(cpu, 4);
@@ -2621,7 +2813,7 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
     }
     if (flags & (1u << 2))
     {
-        printf("timer handle\n");
+        // printf("timer handle\n");
         cpu->memory[0xFF0F] &= ~(1u << 2);
         cpu->PC = TIMER_ADDR;
         update_timer(cpu, 4);
@@ -2629,7 +2821,7 @@ __uint8_t handle_interrupts(CPU *cpu, FILE *file)
     }
     if (flags & (1u << 3))
     {
-        printf("serial handle\n");
+        // printf("serial handle\n");
         cpu->memory[0xFF0F] &= ~(1u << 3);
         cpu->PC = SERIAL_ADDR;
         update_timer(cpu, 4);
@@ -2703,77 +2895,55 @@ void set_bit(__uint8_t *byte, __uint8_t n)
     *byte |= mask;
 }
 
-void detect_keys(CPU *cpu)
+void update_joypad(CPU *cpu)
 {
     const Uint8 *state = SDL_GetKeyboardState(NULL);
-    __uint8_t selected = cpu->memory[0xFF00] & 0xF0;
-    // printf("%.2x %.2x\n", selected, cpu->memory[0xFF00]);
-    if (selected == 0x30)
+    __uint8_t selected = cpu->memory[IO_JOYPAD] & 0xF0;
+    // printf("%.2x %.2x\n", selected, cpu->memory[IO_JOYPAD]);
+    cpu->memory[IO_JOYPAD] |= 0x0F;
+    if (selected == SELECT_NONE)
         return;
-    if (selected == 0x10)
+    if (selected == SELECT_BUTTONS)
     {
         if (state[SDL_SCANCODE_RIGHT])
         {
-            unset_bit(&cpu->memory[0xFF00], 0);
-            printf("Right pressed\n");
+            unset_bit(&cpu->memory[IO_JOYPAD], 0);
         }
-        else
-            set_bit(&cpu->memory[0xFF00], 0);
+
         if (state[SDL_SCANCODE_LEFT])
         {
-            unset_bit(&cpu->memory[0xFF00], 1);
-            printf("Left pressed\n");
+            unset_bit(&cpu->memory[IO_JOYPAD], 1);
         }
-        else
-            set_bit(&cpu->memory[0xFF00], 1);
         if (state[SDL_SCANCODE_UP])
         {
-            unset_bit(&cpu->memory[0xFF00], 2);
-            printf("Up pressed\n");
+            unset_bit(&cpu->memory[IO_JOYPAD], 2);
         }
-        else
-            set_bit(&cpu->memory[0xFF00], 2);
         if (state[SDL_SCANCODE_DOWN])
         {
-            unset_bit(&cpu->memory[0xFF00], 3);
-            printf("Down pressed\n");
+            unset_bit(&cpu->memory[IO_JOYPAD], 3);
         }
-        else
-            set_bit(&cpu->memory[0xFF00], 3);
     }
-    if (selected == 0x20)
+    if (selected == SELECT_DPAD)
     {
         if (state[SDL_SCANCODE_Z])
         {
-            unset_bit(&cpu->memory[0xFF00], 0);
-            printf("A pressed\n");
+            unset_bit(&cpu->memory[IO_JOYPAD], 0);
         }
-        else
-            set_bit(&cpu->memory[0xFF00], 0);
         if (state[SDL_SCANCODE_X])
         {
-            unset_bit(&cpu->memory[0xFF00], 1);
-            printf("B pressed\n");
+            unset_bit(&cpu->memory[IO_JOYPAD], 1);
         }
-        else
-            set_bit(&cpu->memory[0xFF00], 1);
         if (state[SDL_SCANCODE_SPACE])
         {
-            unset_bit(&cpu->memory[0xFF00], 2);
-            printf("Select pressed\n");
-            // cpu->memory[0xFF0F] |= (1u << 4);
+            unset_bit(&cpu->memory[IO_JOYPAD], 2);
         }
-        else
-            set_bit(&cpu->memory[0xFF00], 2);
         if (state[SDL_SCANCODE_RETURN])
         {
-            unset_bit(&cpu->memory[0xFF00], 3);
-            printf("Start pressed\n");
-            // cpu->memory[0xFF0F] |= (1u << 4);
+            unset_bit(&cpu->memory[IO_JOYPAD], 3);
         }
-        else
-            set_bit(&cpu->memory[0xFF00], 3);
     }
+
+    // printf("%.2x\n", cpu->memory[IO_JOYPAD]);
 }
 
 int main(int argc, char **argv)
@@ -2812,7 +2982,7 @@ int main(int argc, char **argv)
     cpu.H = 1;
     cpu.C = 1;
     // cpu.memory[0xFF40] |= (1u << 4); // Default 0x8000
-    cpu.memory[0xFF00] = 0xFF;
+    cpu.memory[IO_JOYPAD] = 0xFF; // all buttons released
     cpu.ppu.prev_ly = 0xFF;
     print_cpu(&cpu, file);
     int cnt = 0;
@@ -2825,7 +2995,7 @@ int main(int argc, char **argv)
 
     while (cnt < 7500000 && !quit)
     {
-        detect_keys(&cpu);
+        update_joypad(&cpu);
 
         // printf("%.2x, %d\n", cpu.PC, cpu.IME);
         // cpu.memory[0xFF00] = 0b11111110;
