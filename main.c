@@ -21,6 +21,11 @@
 #define LYC 0xFF45
 #define LY 0xFF44
 #define LCDC 0xFF40
+#define BGP 0xFF47
+#define OBP0 0xFF48
+#define OBP1 0xFF49
+#define SCY 0xFF42
+#define SCX 0xFF43
 
 __uint8_t *read_file(const char *filename, __uint8_t *buffer)
 {
@@ -170,7 +175,7 @@ void PixelQueue_clear(PixelQueue *queue)
     queue->size = 0;
 }
 
-bool PixelQueue_size(PixelQueue *queue)
+__uint8_t PixelQueue_size(PixelQueue *queue)
 {
     return queue->size;
 }
@@ -181,7 +186,7 @@ void SpriteBuffer_push(SpriteBuffer *buffer, SpriteAttributes sprite)
 {
     if (buffer->size >= 10)
     {
-        printf("Max SpriteBuffer exceeded\n");
+        printf("Max SpriteBuffer exceeded %d\n", buffer->size);
         exit(1);
         return;
     }
@@ -209,14 +214,9 @@ void SpriteBuffer_clear(SpriteBuffer *buffer)
     buffer->size = 0;
 }
 
-bool SpriteBuffer_size(SpriteBuffer *buffer)
+__uint8_t SpriteBuffer_size(SpriteBuffer *buffer)
 {
     return buffer->size;
-}
-
-bool SpriteBufferempty(SpriteBuffer *buffer)
-{
-    return buffer->size == 0;
 }
 
 void oam_scan(CPU *cpu)
@@ -1800,15 +1800,69 @@ __uint8_t display_frame(SDL_Window *window, SDL_Renderer *renderer, __uint8_t *f
     SDL_RenderPresent(renderer);
 }
 
+SpriteAttributes *sprite_to_fetch(CPU *cpu, Fetcher *fetcher)
+{
+    SpriteAttributes *sprite_buffer = cpu->ppu.sprite_buffer.buffer;
+    for (int i = 0; i < SpriteBuffer_size(&cpu->ppu.sprite_buffer); i++)
+    {
+        if (sprite_buffer[i].x == (fetcher->curr_p + 8))
+        {
+            return &sprite_buffer[i];
+        }
+    }
+
+    return NULL;
+}
+
+void fetch_sprite_pixels(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
+{
+    __uint8_t lcdc = cpu->memory[LCDC];
+    __uint8_t obp0 = cpu->memory[OBP0];
+    __uint8_t obp1 = cpu->memory[OBP1];
+    __uint8_t scy = cpu->memory[SCY];
+    __uint8_t scx = cpu->memory[SCX];
+    __uint16_t tiledata = 0x8000;
+    __uint16_t bw_enable = (lcdc & 1u);
+
+    // (2 T cycles)
+    SpriteAttributes *sa = sprite_to_fetch(cpu, fetcher);
+    if (sa == NULL)
+        return;
+    __uint8_t palette = (sa->flags & (1u << 4)) ? obp1 : obp0;
+    __uint8_t tile_n = sa->tile_number;
+
+    // (2 T cycles)
+    __uint16_t tile_addr = tiledata + (tile_n * 16) + (2 * ((ly + scy) % 8));
+    __uint8_t low = cpu->memory[tile_addr];
+
+    // (2 T cycles)
+    __uint8_t high = cpu->memory[tile_addr + 1];
+    __uint8_t mask = 0x80;
+    for (int i = 0; i < 8; i++)
+    {
+        __uint8_t b1 = (low & mask) ? 1 : 0;
+        __uint8_t b2 = (high & mask) ? 1 : 0;
+        mask >>= 1;
+        __uint8_t color_number = (b2 << 1) | b1;
+        Pixel pixel = {0};
+        pixel.color_number = color_number;
+        pixel.background_priority = 0;
+        pixel.palette = palette;
+        pixel.x = ly;
+        pixel.y = fetcher->curr_p + i;
+        PixelQueue_push(&cpu->ppu.sprite_queue, pixel);
+        // printf("added color_number: %d, x: %d, y: %d, cycles: %d\n", pixel.color_number, pixel.x, pixel.y, cpu->ppu.line_cycles);
+    }
+}
+
 void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
 {
     __uint8_t lcdc = cpu->memory[LCDC];
-    __uint8_t obp0 = cpu->memory[0xFF48];
-    __uint8_t obp1 = cpu->memory[0xFF49];
-    __uint8_t scy = cpu->memory[0xFF42];
-    __uint8_t scx = cpu->memory[0xFF43];
-    __uint16_t sprite_addr = 0xFE00;
-    __uint8_t sprite_buffer[40] = {0}; // 10 sprites * 4 bytes
+    __uint8_t bgp = cpu->memory[BGP];
+    __uint8_t obp0 = cpu->memory[OBP0];
+    __uint8_t obp1 = cpu->memory[OBP1];
+    __uint8_t scy = cpu->memory[SCY];
+    __uint8_t scx = cpu->memory[SCX];
     __uint16_t tilemap = (lcdc & (1u << 3)) ? 0x9C00 : 0x9800;
     __uint16_t tiledata = (lcdc & (1u << 4)) ? 0x8000 : 0x9000;
     __uint16_t bw_enable = (lcdc & 1u);
@@ -1842,7 +1896,8 @@ void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
             Pixel *pixel = PixelQueue_pop(&cpu->ppu.bg_queue);
             if ((pixel->x * 160 + pixel->y) < 144 * 160)
             {
-                cpu->ppu.frame[pixel->x * 160 + pixel->y] = pixel->color_number;
+                __uint8_t color = (pixel->palette >> (pixel->color_number * 2)) & 0x3;
+                cpu->ppu.frame[pixel->x * 160 + pixel->y] = color;
                 // printf("color_number: %d, x: %d, y: %d\n", pixel->color_number, pixel->x, pixel->y);
             }
             else
@@ -1853,6 +1908,28 @@ void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
         }
         return;
     }
+    // Push pixels
+    if (PixelQueue_size(&cpu->ppu.sprite_queue))
+    {
+
+        while (PixelQueue_size(&cpu->ppu.sprite_queue))
+        {
+            Pixel *pixel = PixelQueue_pop(&cpu->ppu.sprite_queue);
+            if ((pixel->x * 160 + pixel->y) < 144 * 160)
+            {
+                __uint8_t color = (pixel->palette >> (pixel->color_number * 2)) & 0x3;
+                cpu->ppu.frame[pixel->x * 160 + pixel->y] = color;
+                // printf("color_number: %d, x: %d, y: %d\n", pixel->color_number, pixel->x, pixel->y);
+            }
+            else
+            {
+                // TODO: fix this
+                printf("out of bounds %d, max: %d\n", (pixel->x * 160 + pixel->y), 144 * 160);
+            }
+        }
+        return;
+    }
+
     __uint8_t mask = 0x80;
     for (int i = 0; i < 8; i++)
     {
@@ -1863,20 +1940,17 @@ void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
         Pixel pixel = {0};
         pixel.color_number = color_number;
         pixel.background_priority = 0;
-        pixel.palette = obp0;
+        pixel.palette = bgp;
         pixel.x = ly;
-        pixel.y = fetcher->curr_p;
+        pixel.y = fetcher->curr_p + i;
         PixelQueue_push(&cpu->ppu.bg_queue, pixel);
-        fetcher->curr_p++;
-        if (pixel.color_number == 7)
-        {
-            printf("color num 7\n");
-            exit(1);
-        }
-        // printf("added color_number: %d, x: %d, y: %d, cycles: %d\n", pixel.color_number, pixel.x, pixel.y, cpu->ppu.line_cycles);
+        // fetcher->curr_p++;
+        //  printf("added color_number: %d, x: %d, y: %d, cycles: %d\n", pixel.color_number, pixel.x, pixel.y, cpu->ppu.line_cycles);
     }
+    fetch_sprite_pixels(cpu, fetcher, ly);
 
     fetcher->x_offset = (fetcher->x_offset + 1) % 32;
+    fetcher->curr_p += 8;
 }
 
 __uint8_t get_ppu_mode(CPU *cpu)
@@ -1928,6 +2002,7 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
 
     if (mode == 2 && !cpu->oam_scan)
     {
+        oam_scan(cpu);
         cpu->oam_scan = 1;
         if (cpu->memory[STAT] & (1u << 5)) // STAT.5	Mode 2 (OAM Scan)
         {
@@ -1973,6 +2048,7 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
         cpu->hblank = 0;
         cpu->oam_scan = 0;
         PixelQueue_clear(&cpu->ppu.bg_queue);
+        SpriteBuffer_clear(&cpu->ppu.sprite_buffer);
     }
     if (cpu->ppu.cycles >= 70224)
     {
@@ -1986,6 +2062,7 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
         *ly = 0;
         display_frame(cpu->window, cpu->renderer, cpu->ppu.frame);
         PixelQueue_clear(&cpu->ppu.bg_queue);
+        SpriteBuffer_clear(&cpu->ppu.sprite_buffer);
         // cpu->memory[0xFF0F] &= ~(1u);
     }
 }
