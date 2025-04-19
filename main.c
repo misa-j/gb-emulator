@@ -16,6 +16,7 @@
 #define IF 0xFF0F
 #define IE 0xFFFF
 #define OAM_ADDR 0xFE00
+#define OAM_ADDR_END 0xFE9F
 #define STAT 0xFF41
 #define IO_JOYPAD 0xFF00
 #define LYC 0xFF45
@@ -222,15 +223,17 @@ __uint8_t SpriteBuffer_size(SpriteBuffer *buffer)
 void oam_scan(CPU *cpu)
 {
     SpriteBuffer *sprite_buffer = &cpu->ppu.sprite_buffer;
-    __uint8_t ly = cpu->memory[LY] + 16;
-    for (__uint16_t addr = OAM_ADDR; addr < OAM_ADDR + 40 * 4; addr += 4)
+    __uint8_t ly_offset = cpu->memory[LY] + 16;
+    bool tall_sprite_enabled = cpu->memory[LCDC] & (1u << 2);
+
+    for (__uint16_t addr = OAM_ADDR; addr < OAM_ADDR_END; addr += 4)
     {
         __uint8_t y = cpu->memory[addr];
         __uint8_t x = cpu->memory[addr + 1];
         __uint8_t tile_number = cpu->memory[addr + 2];
         __uint8_t flags = cpu->memory[addr + 3];
-        __uint8_t sprite_height = 8; // 8 in Normal Mode, 16 in Tall-Sprite-Mode
-        if (SpriteBuffer_size(sprite_buffer) < 10 && x > 10 && ly >= y && ly < (y + sprite_height))
+        __uint8_t sprite_height = tall_sprite_enabled ? 16 : 8; // 8 in Normal Mode, 16 in Tall-Sprite-Mode
+        if (SpriteBuffer_size(sprite_buffer) < 10 && x > 10 && ly_offset >= y && ly_offset < (y + sprite_height))
         {
             SpriteAttributes sa = {0};
             sa.y = y;
@@ -240,6 +243,15 @@ void oam_scan(CPU *cpu)
             SpriteBuffer_push(sprite_buffer, sa);
         }
     }
+    // if (ly >= 0x68 && ly <= 0x68 + 16)
+    // {
+
+    //     for (int i = 0; i < SpriteBuffer_size(sprite_buffer); i++)
+    //     {
+    //         printf("n: %.2x, d: %d; ", sprite_buffer->buffer[i].tile_number, tall_sprite ? 1 : 0);
+    //     }
+    //     printf("----------\n");
+    // }
 }
 
 __uint8_t read_opcode(CPU *cpu)
@@ -1816,42 +1828,55 @@ SpriteAttributes *sprite_to_fetch(CPU *cpu, Fetcher *fetcher)
 
 void fetch_sprite_pixels(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
 {
-    __uint8_t lcdc = cpu->memory[LCDC];
-    __uint8_t obp0 = cpu->memory[OBP0];
-    __uint8_t obp1 = cpu->memory[OBP1];
-    __uint8_t scy = cpu->memory[SCY];
-    __uint8_t scx = cpu->memory[SCX];
-    __uint16_t tiledata = 0x8000;
-    __uint16_t bw_enable = (lcdc & 1u);
-
-    // (2 T cycles)
     SpriteAttributes *sa = sprite_to_fetch(cpu, fetcher);
     if (sa == NULL)
         return;
+
+    __uint8_t lcdc = cpu->memory[LCDC];
+    __uint8_t obp0 = cpu->memory[OBP0];
+    __uint8_t obp1 = cpu->memory[OBP1];
+    __uint16_t tiledata = 0x8000;
+    bool tall_sprite_enabled = cpu->memory[LCDC] & (1u << 2);
+    bool x_flip = sa->flags & (1 << 5);
+    bool y_flip = sa->flags & (1 << 6);
+    __uint8_t background_priority = (sa->flags & (1u << 7)) ? 1 : 0;
     __uint8_t palette = (sa->flags & (1u << 4)) ? obp1 : obp0;
     __uint8_t tile_n = sa->tile_number;
+    __uint8_t sprite_row = (ly + 16 - sa->y);
 
-    // (2 T cycles)
-    __uint16_t tile_addr = tiledata + (tile_n * 16) + (2 * ((ly + scy) % 8));
+    if (y_flip)
+    {
+        sprite_row = (tall_sprite_enabled ? 15 : 7) - sprite_row;
+    }
+    if (tall_sprite_enabled)
+    {
+        tile_n &= 0xFE;
+        if (sprite_row >= 8)
+        {
+            tile_n += 1;
+            sprite_row -= 8;
+        }
+    }
+
+    __uint16_t tile_addr = tiledata + (tile_n * 16) + sprite_row * 2;
     __uint8_t low = cpu->memory[tile_addr];
-
-    // (2 T cycles)
     __uint8_t high = cpu->memory[tile_addr + 1];
     __uint8_t mask = 0x80;
+
     for (int i = 0; i < 8; i++)
     {
         __uint8_t b1 = (low & mask) ? 1 : 0;
         __uint8_t b2 = (high & mask) ? 1 : 0;
-        mask >>= 1;
         __uint8_t color_number = (b2 << 1) | b1;
+        mask >>= 1;
+
         Pixel pixel = {0};
         pixel.color_number = color_number;
-        pixel.background_priority = 0;
+        pixel.background_priority = background_priority;
         pixel.palette = palette;
         pixel.x = ly;
-        pixel.y = fetcher->curr_p + i;
+        pixel.y = x_flip ? (fetcher->curr_p + (7 - i)) : fetcher->curr_p + i;
         PixelQueue_push(&cpu->ppu.sprite_queue, pixel);
-        // printf("added color_number: %d, x: %d, y: %d, cycles: %d\n", pixel.color_number, pixel.x, pixel.y, cpu->ppu.line_cycles);
     }
 }
 
@@ -1918,6 +1943,10 @@ void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
             if ((pixel->x * 160 + pixel->y) < 144 * 160)
             {
                 __uint8_t color = (pixel->palette >> (pixel->color_number * 2)) & 0x3;
+                if (pixel->color_number == 0)
+                    continue;
+                else if (pixel->background_priority && cpu->ppu.frame[pixel->x * 160 + pixel->y] != (bgp & 0x3))
+                    continue;
                 cpu->ppu.frame[pixel->x * 160 + pixel->y] = color;
                 // printf("color_number: %d, x: %d, y: %d\n", pixel->color_number, pixel->x, pixel->y);
             }
