@@ -27,6 +27,7 @@
 #define OBP1 0xFF49
 #define SCY 0xFF42
 #define SCX 0xFF43
+#define DMA 0xFF46
 
 __uint8_t *read_file(const char *filename, __uint8_t *buffer)
 {
@@ -136,6 +137,7 @@ typedef struct
     SDL_Window *window;
     SDL_Renderer *renderer;
     Fetcher *fetcher;
+    __uint8_t dma_cycles;
     bool vblank;
     bool hblank;
     bool oam_scan;
@@ -144,6 +146,7 @@ typedef struct
 
 void update_timer(CPU *cpu, __uint8_t t_cycles);
 void update_ppu(CPU *cpu, __uint8_t t_cycles);
+void update_dma(CPU *cpu);
 
 void PixelQueue_push(PixelQueue *queue, Pixel pixel)
 {
@@ -264,7 +267,18 @@ __uint8_t read_opcode(CPU *cpu)
 
 void write_memory(CPU *cpu, uint16_t address, uint8_t value)
 {
-    if (address == IO_JOYPAD)
+    if (address <= 0x7FFF)
+    {
+        printf("address <= 0x7FFF %.2x\n", cpu->PC);
+        return;
+    }
+    else if (address == DMA)
+    {
+        cpu->dma_cycles = 160;
+        cpu->memory[address] = value;
+        update_dma(cpu);
+    }
+    else if (address == IO_JOYPAD)
     {
         cpu->memory[address] = (value | 0x0F);
         // printf("0xFF00 %.2x value %.2x\n", cpu->memory[address], value);
@@ -308,6 +322,15 @@ void print_cpu(CPU *cpu, FILE *file)
     fprintf(file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
             cpu->registers.A, get_F(cpu), cpu->registers.B, cpu->registers.C, cpu->registers.D, cpu->registers.E, cpu->registers.H,
             cpu->registers.L, cpu->SP, cpu->PC, cpu->memory[cpu->PC], cpu->memory[cpu->PC + 1], cpu->memory[cpu->PC + 2], cpu->memory[cpu->PC + 3]);
+}
+
+void update_dma(CPU *cpu)
+{
+    __uint16_t dma_source = cpu->memory[DMA] << 8;
+    for (int i = 0; i < 160; i++)
+    {
+        cpu->memory[OAM_ADDR + i] = cpu->memory[dma_source + i];
+    }
 }
 
 __int16_t sign_extend(__uint8_t value)
@@ -2011,11 +2034,26 @@ void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
     fetcher->curr_p += 8;
 }
 
+void reset_ppu(CPU *cpu)
+{
+    Fetcher *fetcher = cpu->fetcher;
+    __uint8_t *ly = &cpu->memory[LY];
+
+    cpu->ppu.cycles = 0;
+    cpu->ppu.line_cycles = 0;
+    *ly = 0;
+    fetcher->curr_p = 0;
+    fetcher->x_offset = 0;
+    cpu->vblank = 0;
+    cpu->hblank = 0;
+    cpu->oam_scan = 0;
+    cpu->pixel_transfer = false;
+    PixelQueue_clear(&cpu->ppu.bg_queue);
+    SpriteBuffer_clear(&cpu->ppu.sprite_buffer);
+}
+
 __uint8_t get_ppu_mode(CPU *cpu)
 {
-    // Calculate current scanline (0-153)
-    //__uint8_t LY = cpu->memory[LY]; // LY
-
     if (cpu->memory[LY] >= 144) // V-Blank (lines 144-153)
         return 0b01;            // 01
     else
@@ -2024,7 +2062,7 @@ __uint8_t get_ppu_mode(CPU *cpu)
 
         if (line_cycles < 80)       // OAM Search (first 80 cycles)
             return 0b10;            // 10
-        else if (line_cycles < 369) // Pixel Transfer (approx 80-252, varies by sprites)
+        else if (line_cycles < 252) // Pixel Transfer (approx 80-252, varies by sprites)
             return 0b11;            // 11
         else                        // H-Blank (remaining cycles up to 456)
             return 0b00;            // 00
@@ -2033,13 +2071,21 @@ __uint8_t get_ppu_mode(CPU *cpu)
 
 void update_ppu(CPU *cpu, __uint8_t t_cycles)
 {
-    __uint8_t mode = get_ppu_mode(cpu);
+    __uint8_t lcd_enabled = cpu->memory[LCDC] & 0x80;
     Fetcher *fetcher = cpu->fetcher;
+    __uint8_t *ly = &cpu->memory[LY];
+
+    if (!lcd_enabled)
+    {
+        reset_ppu(cpu);
+        return;
+    }
+
+    __uint8_t mode = get_ppu_mode(cpu);
 
     cpu->ppu.cycles += t_cycles;
     cpu->ppu.line_cycles += t_cycles;
 
-    __uint8_t *ly = &cpu->memory[LY];
     bool new_line = *ly != cpu->ppu.prev_ly;
     cpu->ppu.prev_ly = *ly;
     cpu->memory[STAT] = (cpu->memory[STAT] & 0xFC) | mode;
@@ -3036,7 +3082,7 @@ void set_bit(__uint8_t *byte, __uint8_t n)
 void update_joypad(CPU *cpu)
 {
     const Uint8 *state = SDL_GetKeyboardState(NULL);
-    __uint8_t selected = cpu->memory[IO_JOYPAD] & 0xF0;
+    __uint8_t selected = cpu->memory[IO_JOYPAD] & 0x30;
     // printf("%.2x %.2x\n", selected, cpu->memory[IO_JOYPAD]);
     cpu->memory[IO_JOYPAD] |= 0x0F;
     if (selected == SELECT_NONE)
@@ -3133,10 +3179,6 @@ int main(int argc, char **argv)
 
     while (cnt < 7500000 && !quit)
     {
-        update_joypad(&cpu);
-
-        // printf("%.2x, %d\n", cpu.PC, cpu.IME);
-        // cpu.memory[0xFF00] = 0b11111110;
         while (SDL_PollEvent(&e) != 0)
         {
             if (e.type == SDL_QUIT)
@@ -3145,6 +3187,13 @@ int main(int argc, char **argv)
             }
         }
 
+        if (cpu.dma_cycles > 0)
+        {
+            cpu.dma_cycles--;
+            update_timer(&cpu, 4);
+        }
+
+        update_joypad(&cpu);
         // cnt++;
         bool halt_bug = 0;
         // TODO: fix halt bug implementation
