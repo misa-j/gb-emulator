@@ -274,7 +274,7 @@ void write_memory(CPU *cpu, uint16_t address, uint8_t value)
     }
     else if (address <= 0x7FFF)
     {
-        printf("Write 0x%.2x <= 0x7FFF; PC: %.2x\n", address, cpu->PC);
+        printf("Write 0x%.2x <= 0x7FFF; value: %.2x; PC: %.2x\n", address, value, cpu->PC);
     }
     else if (address == DMA)
     {
@@ -294,11 +294,6 @@ void write_memory(CPU *cpu, uint16_t address, uint8_t value)
     else
     {
         cpu->memory[address] = value;
-    }
-    if (address == 0xFF02 && value == 0x81)
-    {
-        printf("%c", cpu->memory[0xFF01]);
-        cpu->memory[0xFF02] &= ~0x80;
     }
 }
 
@@ -2081,6 +2076,7 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
     if (!lcd_enabled)
     {
         reset_ppu(cpu);
+        cpu->memory[STAT] = (cpu->memory[STAT] & 0xFC) | 0;
         return;
     }
 
