@@ -28,6 +28,7 @@
 #define SCY 0xFF42
 #define SCX 0xFF43
 #define DMA 0xFF46
+#define BOOT_ROM_ENABLE 0xFF50
 
 __uint8_t *read_file(const char *filename, __uint8_t *buffer)
 {
@@ -267,10 +268,13 @@ __uint8_t read_opcode(CPU *cpu)
 
 void write_memory(CPU *cpu, uint16_t address, uint8_t value)
 {
-    if (address <= 0x7FFF)
+    if (address == BOOT_ROM_ENABLE)
     {
-        printf("address <= 0x7FFF %.2x\n", cpu->PC);
-        return;
+        printf("Write to 0xFF50: value=0x%02X\n", value);
+    }
+    else if (address <= 0x7FFF)
+    {
+        printf("Write 0x%.2x <= 0x7FFF; PC: %.2x\n", address, cpu->PC);
     }
     else if (address == DMA)
     {
@@ -281,7 +285,6 @@ void write_memory(CPU *cpu, uint16_t address, uint8_t value)
     else if (address == IO_JOYPAD)
     {
         cpu->memory[address] = (value | 0x0F);
-        // printf("0xFF00 %.2x value %.2x\n", cpu->memory[address], value);
     }
     else if (address == 0xFF04)
     {
@@ -3969,8 +3972,8 @@ int main(int argc, char **argv)
         }
         update_IME(&cpu, opcode);
         __uint8_t handled = handle_interrupts(&cpu, file);
-        // if (!handled)
-        //     print_cpu(&cpu, file);
+        if (!handled)
+            print_cpu(&cpu, file);
     }
 
     // free(buffer);
