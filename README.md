@@ -17,7 +17,10 @@ gcc -o emu main.c -lSDL2
 ./emu /path/to/your/rom.gb
 ```
 
-## Screenshots
+## Notes
+- This project is in early development.
+
+## Demo
 
 ![Tetris](images/Tetris.gif)
 ![Dr. Mario](images/DrMario.gif)
