@@ -27,6 +27,8 @@
 #define OBP1 0xFF49
 #define SCY 0xFF42
 #define SCX 0xFF43
+#define WY 0xFF4A
+#define WX 0xFF4B
 #define DMA 0xFF46
 #define BOOT_ROM_ENABLE 0xFF50
 
@@ -36,6 +38,7 @@ __uint8_t *read_file(const char *filename, __uint8_t *buffer)
     if (file == NULL)
     {
         perror("Failed to open file");
+        exit(1);
         return NULL;
     }
 
@@ -49,6 +52,7 @@ __uint8_t *read_file(const char *filename, __uint8_t *buffer)
         perror("Failed to read the entire file");
         free(buffer);
         fclose(file);
+        exit(1);
         return NULL;
     }
 
@@ -114,6 +118,8 @@ typedef struct
 {
     __uint8_t x_offset;
     __uint8_t curr_p;
+    __uint8_t window_line_counter;
+    bool fetching_window_pixels;
 } Fetcher;
 
 typedef struct
@@ -1923,6 +1929,53 @@ void fetch_sprite_pixels(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
     }
 }
 
+void fetch_window_pixels(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
+{
+    __uint8_t lcdc = cpu->memory[LCDC];
+    __uint8_t bgp = cpu->memory[BGP];
+    __uint8_t wx = cpu->memory[WX];
+    __uint8_t wy = cpu->memory[WY];
+    __uint16_t tilemap = (lcdc & (1u << 6)) ? 0x9C00 : 0x9800;
+    __uint16_t tiledata = (lcdc & (1u << 4)) ? 0x8000 : 0x9000;
+    __uint16_t window_enable = lcdc & (1u << 5);
+
+    if (!window_enable || wy > ly || (wx - 7) > fetcher->curr_p)
+    {
+        return;
+    };
+
+    // (2 T cycles)
+    __uint8_t x_offset = fetcher->x_offset;
+    __uint16_t row_offset = 32 * (fetcher->window_line_counter / 8);
+    __uint16_t tile_n_addr = tilemap + row_offset + x_offset;
+    __uint8_t tile_n = cpu->memory[tile_n_addr];
+
+    // (2 T cycles)
+    __uint16_t tile_offset = (tiledata == 0x9000) ? (int8_t)(tile_n) : tile_n;
+    __uint16_t tile_addr = tiledata + (tile_offset * 16) + (2 * (fetcher->window_line_counter % 8));
+    __uint8_t low = cpu->memory[tile_addr];
+
+    // (2 T cycles)
+    __uint8_t high = cpu->memory[tile_addr + 1];
+
+    // Fetching pixels
+    __uint8_t mask = 0x80;
+    for (int i = 0; i < 8; i++)
+    {
+        __uint8_t b1 = (low & mask) ? 1 : 0;
+        __uint8_t b2 = (high & mask) ? 1 : 0;
+        mask >>= 1;
+        __uint8_t color_number = (b2 << 1) | b1;
+        Pixel pixel = {0};
+        pixel.color_number = color_number;
+        pixel.background_priority = 0;
+        pixel.palette = bgp;
+        pixel.x = ly;
+        pixel.y = fetcher->curr_p + i;
+        PixelQueue_push(&cpu->ppu.bg_queue, pixel);
+    }
+}
+
 void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
 {
     __uint8_t lcdc = cpu->memory[LCDC];
@@ -1971,8 +2024,6 @@ void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
         pixel.x = ly;
         pixel.y = fetcher->curr_p + i;
         PixelQueue_push(&cpu->ppu.bg_queue, pixel);
-        // fetcher->curr_p++;
-        //  printf("added color_number: %d, x: %d, y: %d, cycles: %d\n", pixel.color_number, pixel.x, pixel.y, cpu->ppu.line_cycles);
     }
     fetch_sprite_pixels(cpu, fetcher, ly);
 
@@ -2003,9 +2054,33 @@ void render_scanline(CPU *cpu, Fetcher *fetcher, __uint8_t ly)
     //     printf("%.2x %0.2x\n", ly, cpu->ppu.sprite_buffer.buffer[0].tile_number);
     //     new_color = 2;
     // }
-    if (PixelQueue_size(&cpu->ppu.sprite_queue))
+
+    fetch_window_pixels(cpu, fetcher, ly);
+
+    // Push pixels
+    if (PixelQueue_size(&cpu->ppu.bg_queue))
     {
 
+        while (PixelQueue_size(&cpu->ppu.bg_queue))
+        {
+            Pixel *pixel = PixelQueue_pop(&cpu->ppu.bg_queue);
+            if ((pixel->x * 160 + pixel->y) < 144 * 160)
+            {
+                __uint8_t color = (pixel->palette >> (pixel->color_number * 2)) & 0x3;
+                cpu->ppu.frame[pixel->x * 160 + pixel->y] = color;
+                // printf("color_number: %d, x: %d, y: %d\n", pixel->color_number, pixel->x, pixel->y);
+            }
+            else
+            {
+                // TODO: fix this
+                printf("out of bounds %d, max: %d\n", (pixel->x * 160 + pixel->y), 144 * 160);
+            }
+        }
+        // return;
+    }
+
+    if (PixelQueue_size(&cpu->ppu.sprite_queue))
+    {
         while (PixelQueue_size(&cpu->ppu.sprite_queue))
         {
             Pixel *pixel = PixelQueue_pop(&cpu->ppu.sprite_queue);
@@ -2080,6 +2155,11 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
         return;
     }
 
+    __uint8_t lcdc = cpu->memory[LCDC];
+    __uint8_t wx = cpu->memory[WX];
+    __uint8_t wy = cpu->memory[WY];
+    __uint16_t window_enable = lcdc & (1u << 5);
+
     __uint8_t mode = get_ppu_mode(cpu);
 
     cpu->ppu.cycles += t_cycles;
@@ -2115,6 +2195,7 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
     }
     if (mode == 1 && !cpu->vblank)
     {
+        fetcher->window_line_counter = 0;
         cpu->memory[IF] |= (1u << 0);
         cpu->vblank = 1;
         // printf("(VBlank) at: %d\n", *ly);
@@ -2133,6 +2214,16 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
             // printf("(HBlank)\n");
         }
     }
+    if (window_enable && wy <= *ly && (wx - 7) <= fetcher->curr_p)
+    {
+        if (!fetcher->fetching_window_pixels)
+            fetcher->x_offset = 0;
+        fetcher->fetching_window_pixels = true;
+    }
+    else
+    {
+        fetcher->fetching_window_pixels = false;
+    }
 
     if (cpu->ppu.line_cycles < 456)
     {
@@ -2144,6 +2235,11 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
     }
     else
     {
+        if (fetcher->fetching_window_pixels)
+        {
+            fetcher->window_line_counter++;
+        };
+
         cpu->ppu.line_cycles -= 456;
         *ly = *ly + 1;
         fetcher->curr_p = 0;
@@ -2152,6 +2248,7 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
         cpu->hblank = 0;
         cpu->oam_scan = 0;
         cpu->pixel_transfer = false;
+        cpu->fetcher->x_offset = 0;
         PixelQueue_clear(&cpu->ppu.bg_queue);
         SpriteBuffer_clear(&cpu->ppu.sprite_buffer);
     }
@@ -2165,11 +2262,12 @@ void update_ppu(CPU *cpu, __uint8_t t_cycles)
         cpu->hblank = 0;
         cpu->oam_scan = 0;
         cpu->pixel_transfer = false;
+        cpu->fetcher->window_line_counter = 0;
         *ly = 0;
+        cpu->fetcher->x_offset = 0;
         display_frame(cpu->window, cpu->renderer, cpu->ppu.frame);
         PixelQueue_clear(&cpu->ppu.bg_queue);
         SpriteBuffer_clear(&cpu->ppu.sprite_buffer);
-        // cpu->memory[0xFF0F] &= ~(1u);
     }
 }
 
