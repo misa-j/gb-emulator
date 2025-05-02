@@ -32,34 +32,28 @@
 #define DMA 0xFF46
 #define BOOT_ROM_ENABLE 0xFF50
 
-__uint8_t *read_file(const char *filename, __uint8_t *buffer)
+typedef enum
 {
-    FILE *file = fopen(filename, "rb");
-    if (file == NULL)
-    {
-        perror("Failed to open file");
-        exit(1);
-        return NULL;
-    }
+    ROM_ONLY,
+    MBC1,
+} CartridgeType;
 
-    fseek(file, 0, SEEK_END);
-    long filesize = ftell(file);
-    rewind(file);
+typedef struct
+{
+    uint8_t *rom_data;
+    size_t rom_size;
 
-    size_t bytesRead = fread(buffer, 1, filesize, file);
-    if (bytesRead != filesize)
-    {
-        perror("Failed to read the entire file");
-        free(buffer);
-        fclose(file);
-        exit(1);
-        return NULL;
-    }
+    uint8_t *ram_data;
+    size_t ram_size;
 
-    fclose(file);
+    CartridgeType type;
 
-    return buffer;
-}
+    uint8_t rom_bank;
+    uint8_t ram_bank;
+    bool ram_enabled;
+    bool banking_mode; // false = ROM, true = RAM (MBC1)
+
+} Cartridge;
 
 typedef struct
 {
@@ -140,6 +134,7 @@ typedef struct
     bool ime_delay;
     PPU ppu;
     __uint8_t memory[0xFFFF];
+    Cartridge *cartridge;
     // TODO: remove this
     SDL_Window *window;
     SDL_Renderer *renderer;
@@ -154,6 +149,214 @@ typedef struct
 void update_timer(CPU *cpu, __uint8_t t_cycles);
 void update_ppu(CPU *cpu, __uint8_t t_cycles);
 void update_dma(CPU *cpu);
+
+Cartridge *load_cartridge(const char *rom_path)
+{
+    FILE *f = fopen(rom_path, "rb");
+    if (!f)
+    {
+        perror("Failed to open ROM");
+        exit(1);
+        return NULL;
+    }
+
+    fseek(f, 0, SEEK_END);
+    size_t rom_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    uint8_t *rom_data = malloc(rom_size);
+    if (!rom_data)
+    {
+        perror("ROM malloc failed");
+        fclose(f);
+        return NULL;
+    }
+
+    fread(rom_data, 1, rom_size, f);
+    fclose(f);
+
+    Cartridge *cart = calloc(1, sizeof(Cartridge));
+    cart->rom_data = rom_data;
+    cart->rom_size = rom_size;
+
+    uint8_t type = rom_data[0x147];
+    switch (type)
+    {
+    case 0x00:
+        cart->type = ROM_ONLY;
+        break;
+    case 0x01:
+    case 0x02:
+    case 0x03:
+        cart->type = MBC1;
+        break;
+    default:
+        printf("Unsupported cartridge type: 0x%02X\n", type);
+        exit(1);
+    }
+
+    uint8_t ram_size_code = rom_data[0x149];
+    switch (ram_size_code)
+    {
+    case 0x00:
+        cart->ram_size = 0;
+        cart->ram_data = NULL;
+        break;
+    case 0x01:
+        cart->ram_size = 2 * 1024;
+        break;
+    case 0x02:
+        cart->ram_size = 8 * 1024;
+        break;
+    case 0x03:
+        cart->ram_size = 32 * 1024;
+        break;
+    case 0x04:
+        cart->ram_size = 128 * 1024;
+        break;
+    case 0x05:
+        cart->ram_size = 64 * 1024;
+        break;
+    default:
+        printf("Unknown RAM size code: 0x%02X\n", ram_size_code);
+        exit(1);
+    }
+
+    if (cart->ram_size > 0)
+    {
+        cart->ram_data = calloc(1, cart->ram_size);
+        if (!cart->ram_data)
+        {
+            perror("RAM malloc failed");
+            exit(1);
+        }
+    }
+
+    cart->rom_bank = 1; // bank 0 is fixed
+    cart->ram_bank = 0;
+    cart->ram_enabled = false;
+    cart->banking_mode = false;
+    return cart;
+}
+
+void write_memory(CPU *cpu, uint16_t address, uint8_t value)
+{
+    Cartridge *cartridge = cpu->cartridge;
+
+    if (address >= 0x0000 && address <= 0x1FFF)
+    {
+        cartridge->ram_enabled = (value & 0xA) == 0xA;
+    }
+    else if (address >= 0x2000 && address <= 0x3FFF)
+    {
+        // TODO: get bitmask based on total ROM size
+        if (value == 0)
+            cartridge->rom_bank = 1;
+        else
+            cartridge->rom_bank = value & 0b00000011;
+    }
+    else if (address >= 0x4000 && address <= 0x5FFF)
+    {
+        cartridge->ram_bank = value & 0b00000011;
+    }
+    else if (address >= 0x6000 && address <= 0x7FFF)
+    {
+        cartridge->banking_mode = value & 0x1;
+    }
+    else if (address >= 0xA000 && address <= 0xBFFF)
+    {
+        if (!cartridge->ram_enabled)
+            return;
+        size_t offset;
+        if (cartridge->ram_size <= 8 * 1024)
+        {
+            offset = (address - 0xA000) % cartridge->ram_size;
+        }
+        else if (cartridge->banking_mode == true)
+        {
+            offset = cartridge->ram_bank * 0x2000 + (address - 0xA000);
+        }
+        else
+        {
+            offset = address - 0xA000;
+        }
+        if (offset >= cartridge->ram_size)
+        {
+            printf("RAM write out of bounds: addr=0x%04X, offset=0x%X, ram_size=0x%lX\n",
+                   address, offset, (unsigned long)cartridge->ram_size);
+        }
+        cartridge->ram_data[offset] = value;
+    }
+    else if (address == BOOT_ROM_ENABLE)
+    {
+        printf("Write to 0xFF50: value=0x%02X\n", value);
+    }
+    else if (address == DMA)
+    {
+        cpu->dma_cycles = 160;
+        cpu->memory[address] = value;
+        update_dma(cpu);
+    }
+    else if (address == IO_JOYPAD)
+    {
+        cpu->memory[address] = (value | 0x0F);
+    }
+    else if (address == 0xFF04)
+    {
+        cpu->div_cycles = 0;
+        cpu->memory[0xFF04] = 0;
+    }
+    else
+    {
+        cpu->memory[address] = value;
+    }
+}
+
+__uint8_t read_memory(CPU *cpu, uint16_t addr)
+{
+    Cartridge *cart = cpu->cartridge;
+
+    if (addr < 0x4000)
+    {
+        return cart->rom_data[addr];
+    }
+    else if (addr >= 0x4000 && addr < 0x8000)
+    {
+        if (cart->type == MBC1)
+        {
+            size_t offset = cart->rom_bank * 0x4000 + (addr - 0x4000);
+            return cart->rom_data[offset % cart->rom_size];
+        }
+        else
+        {
+            return cart->rom_data[addr]; // ROM only
+        }
+    }
+    else if (addr >= 0xA000 && addr < 0xC000)
+    {
+        if (cart->ram_data == NULL || !cart->ram_enabled)
+            return 0xFF;
+
+        if (cart->type == MBC1)
+        {
+            size_t offset = cart->ram_bank * 0x2000 + (addr - 0xA000);
+            return cart->ram_data[offset % cart->ram_size];
+        }
+        else
+        {
+            return cart->ram_data[addr - 0xA000]; // ROM only
+        }
+    }
+    else
+    {
+        return cpu->memory[addr];
+    }
+}
+
+__uint8_t read_opcode(CPU *cpu)
+{
+    return read_memory(cpu, cpu->PC++);
+}
 
 void PixelQueue_push(PixelQueue *queue, Pixel pixel)
 {
@@ -265,49 +468,6 @@ void oam_scan(CPU *cpu)
     //     }
     //     printf("----------\n");
     // }
-}
-
-__uint8_t read_opcode(CPU *cpu)
-{
-    return cpu->memory[cpu->PC++];
-}
-
-void write_memory(CPU *cpu, uint16_t address, uint8_t value)
-{
-    if (address == BOOT_ROM_ENABLE)
-    {
-        printf("Write to 0xFF50: value=0x%02X\n", value);
-    }
-    else if (address <= 0x7FFF)
-    {
-        printf("Write 0x%.2x <= 0x7FFF; value: %.2x; PC: %.2x\n", address, value, cpu->PC);
-    }
-    else if (address == DMA)
-    {
-        cpu->dma_cycles = 160;
-        cpu->memory[address] = value;
-        update_dma(cpu);
-    }
-    else if (address == IO_JOYPAD)
-    {
-        cpu->memory[address] = (value | 0x0F);
-    }
-    else if (address == 0xFF04)
-    {
-        cpu->div_cycles = 0;
-        cpu->memory[0xFF04] = 0;
-    }
-    else
-    {
-        cpu->memory[address] = value;
-    }
-}
-
-__uint8_t read_memory(CPU *cpu, uint16_t address)
-{
-    if (address == 0xFF4D)
-        return 0xFF;
-    return cpu->memory[address];
 }
 
 bool interrupt_pending(CPU *cpu)
@@ -3246,7 +3406,7 @@ int main(int argc, char **argv)
 
     const char *filename = argv[1];
     CPU cpu = {0};
-    __uint8_t *buffer = read_file(filename, cpu.memory);
+    cpu.cartridge = load_cartridge(filename);
     cpu.registers.A = 0x01;
     cpu.registers.F = 0xB0;
     cpu.registers.B = 0x00;
@@ -3262,7 +3422,6 @@ int main(int argc, char **argv)
     cpu.N = 0;
     cpu.H = 1;
     cpu.C = 1;
-    // cpu.memory[0xFF40] |= (1u << 4); // Default 0x8000
     cpu.memory[IO_JOYPAD] = 0xFF; // all buttons released
     cpu.ppu.prev_ly = 0xFF;
     print_cpu(&cpu, file);
