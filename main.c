@@ -149,6 +149,7 @@ typedef struct
 void update_timer(CPU *cpu, __uint8_t t_cycles);
 void update_ppu(CPU *cpu, __uint8_t t_cycles);
 void update_dma(CPU *cpu);
+void update_joypad(CPU *cpu);
 
 Cartridge *load_cartridge(const char *rom_path)
 {
@@ -485,7 +486,7 @@ void print_cpu(CPU *cpu, FILE *file)
     return;
     fprintf(file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
             cpu->registers.A, get_F(cpu), cpu->registers.B, cpu->registers.C, cpu->registers.D, cpu->registers.E, cpu->registers.H,
-            cpu->registers.L, cpu->SP, cpu->PC, cpu->memory[cpu->PC], cpu->memory[cpu->PC + 1], cpu->memory[cpu->PC + 2], cpu->memory[cpu->PC + 3]);
+            cpu->registers.L, cpu->SP, cpu->PC, read_memory(cpu, cpu->PC), read_memory(cpu, cpu->PC + 1), read_memory(cpu, cpu->PC + 2), read_memory(cpu, cpu->PC + 3));
 }
 
 void update_dma(CPU *cpu)
@@ -3417,7 +3418,7 @@ int main(int argc, char **argv)
     cpu.registers.L = 0x4D;
     cpu.SP = 0xFFFE;
     cpu.PC = 0x100;
-    // write_memory(&cpu, 0xFF44, 0x90);
+    write_memory(&cpu, 0xFF44, 0x90);
     cpu.Z = 1;
     cpu.N = 0;
     cpu.H = 1;
