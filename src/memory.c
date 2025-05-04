@@ -1,5 +1,6 @@
 #include "memory.h"
 #include "cpu.h"
+#include "timer.h"
 
 Cartridge *load_cartridge(const char *rom_path)
 {
@@ -152,10 +153,10 @@ void write_memory(CPU *cpu, uint16_t address, uint8_t value)
     {
         cpu->memory[address] = (value | 0x0F);
     }
-    else if (address == 0xFF04)
+    else if (address == DIV)
     {
         cpu->div_cycles = 0;
-        cpu->memory[0xFF04] = 0;
+        cpu->memory[DIV] = 0;
     }
     else
     {

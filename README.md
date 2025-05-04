@@ -22,5 +22,6 @@ make
 
 ## Demo
 
+![Super Mario Land](images/SuperMarioLand.gif)
 ![Tetris](images/Tetris.gif)
 ![Dr. Mario](images/DrMario.gif)
