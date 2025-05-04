@@ -10,7 +10,7 @@ Game Boy emulator written in C.
 
 ## Compile
 ```bash
-gcc -o emu main.c -lSDL2
+make
 ```
 ## Run
 ```bash
